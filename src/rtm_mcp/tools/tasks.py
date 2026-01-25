@@ -76,12 +76,20 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         if not include_completed:
             tasks = [t for t in tasks if not t.get("completed")]
 
+        # Get user's timezone for accurate date analysis
+        timezone = None
+        try:
+            settings_result = await client.call("rtm.settings.getList")
+            timezone = settings_result.get("settings", {}).get("timezone")
+        except Exception:
+            pass
+
         return build_response(
             data={
                 "tasks": [format_task(t) for t in tasks],
                 "count": len(tasks),
             },
-            analysis=_analyze_tasks(tasks) if tasks else None,
+            analysis=_analyze_tasks(tasks, timezone=timezone) if tasks else None,
         )
 
     @mcp.tool()
@@ -887,8 +895,14 @@ async def _resolve_task_ids(
     }
 
 
-def _analyze_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
-    """Generate analysis insights for tasks."""
+def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> dict[str, Any]:
+    """Generate analysis insights for tasks.
+
+    Args:
+        tasks: List of task dictionaries
+        timezone: User's IANA timezone (e.g., 'Europe/Warsaw'). If not provided,
+                  falls back to UTC which may cause incorrect date comparisons.
+    """
     if not tasks:
         return {}
 
@@ -898,8 +912,21 @@ def _analyze_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
     tags_used: set[str] = set()
 
     from datetime import UTC, datetime
+    from zoneinfo import ZoneInfo
 
-    now = datetime.now(UTC)
+    # Get current date in user's timezone for accurate comparison
+    # RTM due dates are relative to the user's timezone
+    user_tz = None
+    if timezone:
+        try:
+            user_tz = ZoneInfo(timezone)
+        except Exception:
+            pass
+
+    if user_tz:
+        now = datetime.now(user_tz)
+    else:
+        now = datetime.now(UTC)
     today = now.date()
 
     for task in tasks:
@@ -918,10 +945,18 @@ def _analyze_tasks(tasks: list[dict[str, Any]]) -> dict[str, Any]:
         due = task.get("due")
         if due:
             try:
+                # Parse the due date from RTM
+                # RTM returns dates in UTC with 'Z' suffix
                 due_dt = datetime.fromisoformat(due.replace("Z", "+00:00"))
-                if due_dt.date() < today:
+
+                # Convert to user's timezone for comparison
+                if user_tz:
+                    due_dt = due_dt.astimezone(user_tz)
+
+                due_date = due_dt.date()
+                if due_date < today:
                     overdue_count += 1
-                elif due_dt.date() == today:
+                elif due_date == today:
                     due_today_count += 1
             except ValueError:
                 pass
