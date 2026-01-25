@@ -17,6 +17,14 @@ from ..response_builder import (
 def register_task_tools(mcp: Any, get_client: Any) -> None:
     """Register all task-related tools."""
 
+    async def _get_user_timezone(client: RTMClient) -> str | None:
+        """Fetch user's timezone from RTM settings."""
+        try:
+            settings_result = await client.call("rtm.settings.getList")
+            return settings_result.get("settings", {}).get("timezone")
+        except Exception:
+            return None
+
     @mcp.tool()
     async def list_tasks(
         ctx: Context,
@@ -76,17 +84,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         if not include_completed:
             tasks = [t for t in tasks if not t.get("completed")]
 
-        # Get user's timezone for accurate date analysis
-        timezone = None
-        try:
-            settings_result = await client.call("rtm.settings.getList")
-            timezone = settings_result.get("settings", {}).get("timezone")
-        except Exception:
-            pass
+        # Get user's timezone for accurate date display
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "tasks": [format_task(t) for t in tasks],
+                "tasks": [format_task(t, timezone=timezone) for t in tasks],
                 "count": len(tasks),
             },
             analysis=_analyze_tasks(tasks, timezone=timezone) if tasks else None,
@@ -145,10 +148,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         tasks = parse_tasks_response(result)
         task = tasks[0] if tasks else {}
         transaction_id = get_transaction_id(result)
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task),
+                "task": format_task(task, timezone=timezone),
                 "message": f"Created task: {task.get('name', name)}",
             },
             transaction_id=transaction_id,
@@ -204,10 +208,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         transaction_id = get_transaction_id(result)
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Completed: {task_data.get('name', '')}",
             },
             transaction_id=transaction_id,
@@ -263,10 +268,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Reopened: {task_data.get('name', '')}",
             },
             transaction_id=get_transaction_id(result),
@@ -359,10 +365,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Renamed to: {new_name}",
             },
             transaction_id=get_transaction_id(result),
@@ -405,11 +412,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         message = f"Due date set to: {due}" if due else "Due date cleared"
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
             transaction_id=get_transaction_id(result),
@@ -452,10 +460,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Priority set to: {priority}",
             },
             transaction_id=get_transaction_id(result),
@@ -493,10 +502,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": "Task postponed",
             },
             transaction_id=get_transaction_id(result),
@@ -554,10 +564,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Moved to: {to_list_name}",
             },
             transaction_id=get_transaction_id(result),
@@ -598,10 +609,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Added tags: {tags}",
             },
             transaction_id=get_transaction_id(result),
@@ -642,10 +654,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": f"Removed tags: {tags}",
             },
             transaction_id=get_transaction_id(result),
@@ -687,11 +700,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         message = f"Recurrence set: {repeat}" if repeat else "Recurrence cleared"
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
             transaction_id=get_transaction_id(result),
@@ -733,11 +747,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         message = f"Start date set: {start}" if start else "Start date cleared"
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
             transaction_id=get_transaction_id(result),
@@ -779,11 +794,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         message = f"Estimate set: {estimate}" if estimate else "Estimate cleared"
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
             transaction_id=get_transaction_id(result),
@@ -824,11 +840,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
 
         message = f"URL set: {url}" if url else "URL cleared"
         return build_response(
             data={
-                "task": format_task(task_data),
+                "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
             transaction_id=get_transaction_id(result),

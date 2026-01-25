@@ -35,20 +35,59 @@ def build_response(
     return response
 
 
-def format_task(task: dict[str, Any], include_ids: bool = True) -> dict[str, Any]:
+def _convert_due_date(due: str, timezone: str | None) -> str:
+    """Convert RTM due date (UTC) to user's timezone.
+
+    Args:
+        due: Due date string from RTM (ISO 8601 format, typically with Z suffix)
+        timezone: User's IANA timezone (e.g., 'Europe/Warsaw')
+
+    Returns:
+        ISO 8601 date string in user's timezone, or original if conversion fails
+    """
+    if not timezone:
+        return due
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        # Parse the UTC date from RTM
+        due_dt = datetime.fromisoformat(due.replace("Z", "+00:00"))
+
+        # Convert to user's timezone
+        user_tz = ZoneInfo(timezone)
+        due_local = due_dt.astimezone(user_tz)
+
+        # Return ISO format in user's timezone
+        return due_local.isoformat()
+    except Exception:
+        # If conversion fails, return original
+        return due
+
+
+def format_task(
+    task: dict[str, Any], include_ids: bool = True, timezone: str | None = None
+) -> dict[str, Any]:
     """Format a task for response.
 
     Args:
         task: Raw task data from RTM
         include_ids: Whether to include task IDs
+        timezone: User's IANA timezone for date conversion (e.g., 'Europe/Warsaw')
 
     Returns:
         Formatted task dict
     """
+    # Convert due date to user's timezone
+    due_display = None
+    due_raw = task.get("due")
+    if due_raw:
+        due_display = _convert_due_date(due_raw, timezone)
+
     formatted = {
         "name": task.get("name", ""),
         "priority": _priority_label(task.get("priority", "N")),
-        "due": task.get("due") or None,
+        "due": due_display,
         "completed": task.get("completed") or None,
         "tags": task.get("tags", []),
         "url": task.get("url") or None,
