@@ -68,7 +68,15 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             lists = parse_lists_response(lists_result)
             for lst in lists:
                 if lst["name"].lower() == list_name.lower():
-                    list_id = lst["id"]
+                    if lst["smart"] and lst.get("filter"):
+                        # Smart lists are saved filters; query by filter
+                        # rather than list_id. Normalize non-breaking spaces
+                        # (U+00A0) that RTM may include in filter strings.
+                        smart_filter = lst["filter"].replace("\xa0", " ")
+                        filter_parts.append(f"({smart_filter})")
+                        filter_str = " AND ".join(filter_parts)
+                    else:
+                        list_id = lst["id"]
                     break
 
         params: dict[str, Any] = {}
