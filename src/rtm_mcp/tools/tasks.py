@@ -920,6 +920,39 @@ async def _resolve_task_ids(
     }
 
 
+def _parse_estimate_minutes(estimate: str | None) -> int | None:
+    """Parse RTM estimate string to minutes. Returns None if unparseable.
+
+    Handles both ISO 8601 durations (PT1H30M) and human-readable strings (1 hour 30 minutes).
+    """
+    if not estimate:
+        return None
+    import re
+
+    total = 0
+    matched = False
+
+    # ISO 8601 duration: PT1H, PT30M, PT1H30M, PT2H15M
+    iso = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?$", estimate)
+    if iso:
+        if iso.group(1):
+            total += int(iso.group(1)) * 60
+            matched = True
+        if iso.group(2):
+            total += int(iso.group(2))
+            matched = True
+        return total if matched else None
+
+    # Human-readable: "1 hour", "30 minutes", "2 hours 30 minutes"
+    hours = re.search(r"(\d+)\s*hour", estimate)
+    minutes = re.search(r"(\d+)\s*min", estimate)
+    if hours:
+        total += int(hours.group(1)) * 60
+    if minutes:
+        total += int(minutes.group(1))
+    return total if (hours or minutes) else None
+
+
 def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> dict[str, Any]:
     """Generate analysis insights for tasks.
 
@@ -934,6 +967,8 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
     priority_counts = {"high": 0, "medium": 0, "low": 0, "none": 0}
     overdue_count = 0
     due_today_count = 0
+    total_estimate_minutes = 0
+    without_estimate = 0
     tags_used: set[str] = set()
 
     from datetime import UTC, datetime
@@ -989,6 +1024,14 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
         # Collect tags
         tags_used.update(task.get("tags", []))
 
+        # Accumulate estimates
+        est = task.get("estimate")
+        est_minutes = _parse_estimate_minutes(est)
+        if est_minutes is not None:
+            total_estimate_minutes += est_minutes
+        else:
+            without_estimate += 1
+
     insights = []
     if overdue_count:
         insights.append(f"{overdue_count} overdue task(s)")
@@ -996,6 +1039,16 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
         insights.append(f"{due_today_count} due today")
     if priority_counts["high"]:
         insights.append(f"{priority_counts['high']} high priority")
+    if total_estimate_minutes:
+        hours, mins = divmod(total_estimate_minutes, 60)
+        if hours and mins:
+            insights.append(f"{hours}h {mins}min total estimated")
+        elif hours:
+            insights.append(f"{hours}h total estimated")
+        else:
+            insights.append(f"{mins}min total estimated")
+    if without_estimate:
+        insights.append(f"{without_estimate} task(s) without estimate")
 
     return {
         "summary": {
@@ -1003,6 +1056,11 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
             "by_priority": priority_counts,
             "overdue": overdue_count,
             "due_today": due_today_count,
+            "estimates": {
+                "total_minutes": total_estimate_minutes,
+                "total_display": f"{total_estimate_minutes // 60}h {total_estimate_minutes % 60}min",
+                "without_estimate": without_estimate,
+            },
         },
         "insights": insights,
         "tags_used": sorted(tags_used),

@@ -92,6 +92,7 @@ def format_task(
         "tags": task.get("tags", []),
         "url": task.get("url") or None,
         "notes_count": len(task.get("notes", [])),
+        "estimate": task.get("estimate") or None,
     }
 
     if include_ids:
