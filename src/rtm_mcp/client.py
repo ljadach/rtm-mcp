@@ -87,6 +87,7 @@ class RTMClient:
             "api_key": self.config.api_key,
             "auth_token": self.config.auth_token,
             "format": "json",
+            "v": "2",
         }
 
         # Add timeline for write operations
