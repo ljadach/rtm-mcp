@@ -218,9 +218,9 @@ class TestFormatList:
         lst = {
             "id": "123",
             "name": "Test List",
-            "smart": "0",
-            "archived": "0",
-            "locked": "1",
+            "smart": False,
+            "archived": False,
+            "locked": True,
         }
 
         formatted = format_list(lst)
