@@ -228,6 +228,7 @@ def parse_lists_response(result: dict[str, Any]) -> list[dict[str, Any]]:
             "archived": lst.get("archived") == "1",
             "position": int(lst.get("position", -1)),
             "smart": lst.get("smart") == "1",
+            "filter": lst.get("filter"),
             "sort_order": lst.get("sort_order"),
         }
         for lst in lists
