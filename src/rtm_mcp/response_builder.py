@@ -35,11 +35,11 @@ def build_response(
     return response
 
 
-def _convert_due_date(due: str, timezone: str | None) -> str:
-    """Convert RTM due date (UTC) to user's timezone.
+def _convert_rtm_date(due: str, timezone: str | None) -> str:
+    """Convert RTM date (UTC) to user's timezone.
 
     Args:
-        due: Due date string from RTM (ISO 8601 format, typically with Z suffix)
+        due: Date string from RTM (ISO 8601 format, typically with Z suffix)
         timezone: User's IANA timezone (e.g., 'Europe/Warsaw')
 
     Returns:
@@ -78,21 +78,28 @@ def format_task(
     Returns:
         Formatted task dict
     """
-    # Convert due date to user's timezone
+    # Convert dates to user's timezone
     due_display = None
     due_raw = task.get("due")
     if due_raw:
-        due_display = _convert_due_date(due_raw, timezone)
+        due_display = _convert_rtm_date(due_raw, timezone)
+
+    start_display = None
+    start_raw = task.get("start")
+    if start_raw:
+        start_display = _convert_rtm_date(start_raw, timezone)
 
     formatted = {
         "name": task.get("name", ""),
         "priority": _priority_label(task.get("priority", "N")),
         "due": due_display,
+        "start": start_display,
         "completed": task.get("completed") or None,
         "tags": task.get("tags", []),
         "url": task.get("url") or None,
         "notes_count": len(task.get("notes", [])),
         "estimate": task.get("estimate") or None,
+        "modified": task.get("modified") or None,
     }
 
     if include_ids:
@@ -198,6 +205,8 @@ def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "name": ts.get("name"),
                     "due": t.get("due") or None,
                     "has_due_time": t.get("has_due_time") == "1",
+                    "start": t.get("start") or None,
+                    "has_start_time": t.get("has_start_time") == "1",
                     "completed": t.get("completed") or None,
                     "deleted": t.get("deleted") or None,
                     "priority": t.get("priority", "N"),

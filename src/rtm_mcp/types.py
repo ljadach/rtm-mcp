@@ -15,6 +15,8 @@ class RTMTask(BaseModel):
     name: str
     due: str | None = None
     has_due_time: bool = False
+    start: str | None = None
+    has_start_time: bool = False
     completed: str | None = None
     deleted: str | None = None
     priority: str = "N"
