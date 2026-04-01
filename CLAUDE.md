@@ -81,7 +81,10 @@ RTM supports parent/child task relationships (Pro required, max 3 levels):
 - `list_tasks` accepts a `parent_task_id` parameter: it injects `isSubtask:true` into the server-side filter, then applies client-side filtering by parent ID
 - `add_task` accepts `parent_task_id` to create a task as a subtask
 - `set_parent_task` reparents a task or promotes it to top-level (pass empty `parent_task_id`)
-- RTM error codes: 4060 = max nesting exceeded, 4040 = Pro required
+- If the parent is in a different list, the task is **implicitly moved** to that list
+- Repeating tasks cannot be parents or children of other repeating tasks
+- `isSubtask:true` is an **undocumented** RTM filter — client-side filtering by `parent_task_id` is the reliable fallback
+- RTM error codes: 4040 = Pro required, 4050 = invalid parent, 4060 = max nesting exceeded, 4070 = repeating task conflict, 4090 = self-parenting
 
 ### Write Response Format
 

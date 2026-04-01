@@ -54,6 +54,12 @@ ERROR_CODE_MAP = {
     114: RTMAuthError,  # User not logged in
     340: RTMNotFoundError,  # List not found
     341: RTMNotFoundError,  # Task not found
+    # Subtask / hierarchy errors
+    4040: RTMValidationError,  # Sub-task editing requires Pro account
+    4050: RTMValidationError,  # Invalid parent_task_id
+    4060: RTMValidationError,  # Sub-tasks nested too deep (max 3 levels)
+    4070: RTMValidationError,  # Repeating task cannot be parent/child of repeating task
+    4090: RTMValidationError,  # Task cannot be its own parent
 }
 
 

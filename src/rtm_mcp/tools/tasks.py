@@ -152,7 +152,8 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             name: Task name (with optional Smart Add syntax)
             list_name: List to add to (uses default list if not specified)
             parse: Parse Smart Add syntax (default: True)
-            parent_task_id: Task ID of the parent to create this as a subtask under (Pro only, max 3 levels)
+            parent_task_id: Task ID of the parent to create this as a subtask under
+                (Pro only, max 3 levels; repeating tasks cannot be nested under repeating parents)
             external_id: External reference ID to link the task to an external system (e.g., Jira ticket ID)
 
         Returns:
@@ -1012,6 +1013,9 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         Pro accounts only. Max 3 levels of nesting.
 
+        Note: If the parent is in a different list, the task will be moved to that list.
+        Repeating tasks cannot be parents or children of other repeating tasks.
+
         Args:
             task_name: Task name to search for
             task_id: Specific task ID
@@ -1021,6 +1025,9 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         Returns:
             Updated task details with transaction ID for undo
+
+        RTM error codes: 4040=Pro required, 4050=invalid parent, 4060=max nesting,
+            4070=repeating task conflict, 4090=self-parenting
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
