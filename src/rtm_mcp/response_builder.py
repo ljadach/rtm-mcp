@@ -115,9 +115,9 @@ def format_list(lst: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": lst.get("id"),
         "name": lst.get("name"),
-        "smart": lst.get("smart") == "1",
-        "archived": lst.get("archived") == "1",
-        "locked": lst.get("locked") == "1",
+        "smart": lst.get("smart"),
+        "archived": lst.get("archived"),
+        "locked": lst.get("locked"),
     }
 
 
