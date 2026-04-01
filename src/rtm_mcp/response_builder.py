@@ -99,6 +99,8 @@ def format_task(
         "url": task.get("url") or None,
         "notes_count": len(task.get("notes", [])),
         "estimate": task.get("estimate") or None,
+        "parent_task_id": task.get("parent_task_id") or None,
+        "subtask_count": task.get("subtask_count", 0),
         "modified": task.get("modified") or None,
     }
 
@@ -157,13 +159,16 @@ def priority_to_code(priority: str | int | None) -> str:
 def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
     """Parse RTM tasks response into flat task list.
 
-    RTM returns nested structure:
-    tasks.list[].taskseries[].task[]
+    RTM returns nested structure for getList:  tasks.list[].taskseries[].task[]
+    Write operations (add, complete, etc.) use: list.taskseries[].task[]
 
     We flatten this to a simple list with all IDs attached.
     """
     tasks = []
+    # Handle both response formats: getList wraps under "tasks", write ops use "list" directly
     task_lists = result.get("tasks", {}).get("list", [])
+    if not task_lists and "list" in result:
+        task_lists = result["list"]
 
     if isinstance(task_lists, dict):
         task_lists = [task_lists]
@@ -197,6 +202,9 @@ def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
                 if isinstance(notes, dict):
                     notes = [notes]
 
+            # Extract parent_task_id from taskseries (empty string means top-level)
+            parent_task_id = ts.get("parent_task_id") or None
+
             for t in task_data:
                 tasks.append({
                     "id": t.get("id"),
@@ -216,6 +224,7 @@ def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "notes": notes,
                     "url": ts.get("url") or None,
                     "location_id": ts.get("location_id") or None,
+                    "parent_task_id": parent_task_id,
                     "created": ts.get("created") or None,
                     "modified": ts.get("modified") or None,
                 })

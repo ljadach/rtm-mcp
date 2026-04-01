@@ -2,9 +2,12 @@
 
 import asyncio
 import hashlib
+import logging
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from .config import RTM_API_URL, RTMConfig
 from .exceptions import RTMError, RTMNetworkError, RTMRateLimitError, raise_for_error
@@ -109,6 +112,8 @@ class RTMClient:
 
             result = response.json()
             rsp = result.get("rsp", {})
+
+            logger.debug("RTM API %s raw response: %s", method, rsp)
 
             if rsp.get("stat") != "ok":
                 err = rsp.get("err", {})

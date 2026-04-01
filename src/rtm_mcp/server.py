@@ -65,9 +65,12 @@ This server provides full access to Remember The Milk's task management features
 - delete_task: Remove tasks
 - postpone_task: Push due date by one day
 - set_task_*: Modify name, due date, priority, recurrence, estimate, URL
+- move_task_priority: Shift priority up/down by one level
+- set_parent_task: Move a task under a parent or promote to top-level
 
 ## Tag Operations
-- add_task_tags / remove_task_tags: Manage task tags
+- add_task_tags / remove_task_tags: Incremental tag changes
+- set_task_tags: Replace all tags on a task in one call
 - get_tags: List all tags in use
 
 ## Note Operations

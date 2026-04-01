@@ -14,6 +14,18 @@ from ..response_builder import (
 )
 
 
+def _apply_subtask_counts(tasks: list[dict[str, Any]]) -> None:
+    """Compute subtask_count on parent tasks from children in the result set."""
+    task_ids = {t["id"] for t in tasks}
+    counts: dict[str, int] = {}
+    for t in tasks:
+        pid = t.get("parent_task_id")
+        if pid and pid in task_ids:
+            counts[pid] = counts.get(pid, 0) + 1
+    for t in tasks:
+        t["subtask_count"] = counts.get(t["id"], 0)
+
+
 def register_task_tools(mcp: Any, get_client: Any) -> None:
     """Register all task-related tools."""
 
@@ -31,6 +43,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         filter: str | None = None,
         list_name: str | None = None,
         include_completed: bool = False,
+        parent_task_id: str | None = None,
     ) -> dict[str, Any]:
         """List tasks with optional filtering.
 
@@ -38,15 +51,18 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             filter: RTM filter string (e.g., "dueBefore:tomorrow", "tag:work", "priority:1")
             list_name: Filter to a specific list name
             include_completed: Include completed tasks (default: false)
+            parent_task_id: Return only subtasks of this parent task ID
 
         Returns:
-            List of tasks with metadata
+            List of tasks with metadata. subtask_count on each task reflects the
+            number of children present in the current result set.
 
         Examples:
             - list_tasks() → all incomplete tasks
             - list_tasks(filter="dueBefore:tomorrow") → tasks due soon
             - list_tasks(filter="tag:work AND priority:1") → high priority work tasks
             - list_tasks(list_name="Personal") → tasks in Personal list
+            - list_tasks(parent_task_id="1194808991") → subtasks of a specific parent
         """
         client: RTMClient = await get_client()
 
@@ -56,6 +72,8 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             filter_parts.append("status:incomplete")
         if filter:
             filter_parts.append(filter)
+        if parent_task_id:
+            filter_parts.append("isSubtask:true")
 
         filter_str = " AND ".join(filter_parts) if filter_parts else None
 
@@ -92,6 +110,13 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         if not include_completed:
             tasks = [t for t in tasks if not t.get("completed")]
 
+        # Client-side filter by parent_task_id (RTM has no server-side operator)
+        if parent_task_id:
+            tasks = [t for t in tasks if t.get("parent_task_id") == parent_task_id]
+
+        # Compute subtask_count for parent tasks in the result set
+        _apply_subtask_counts(tasks)
+
         # Get user's timezone for accurate date display
         timezone = await _get_user_timezone(client)
 
@@ -109,8 +134,10 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         name: str,
         list_name: str | None = None,
         parse: bool = True,
+        parent_task_id: str | None = None,
+        external_id: str | None = None,
     ) -> dict[str, Any]:
-        """Add a new task.
+        """Add a new task, optionally as a subtask of an existing task.
 
         Supports Smart Add syntax when parse=True:
             - ^date for due date (^tomorrow, ^next friday)
@@ -124,6 +151,8 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             name: Task name (with optional Smart Add syntax)
             list_name: List to add to (uses default list if not specified)
             parse: Parse Smart Add syntax (default: True)
+            parent_task_id: Task ID of the parent to create this as a subtask under (Pro only, max 3 levels)
+            external_id: External reference ID to link the task to an external system (e.g., Jira ticket ID)
 
         Returns:
             Created task details with transaction ID for undo
@@ -132,6 +161,8 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             - add_task("Buy groceries")
             - add_task("Call mom ^tomorrow !1 #family")
             - add_task("Weekly review *weekly ^monday", list_name="Work")
+            - add_task("Sub-item", parent_task_id="1194808991")
+            - add_task("Fix login bug", external_id="JIRA-1234")
         """
         client: RTMClient = await get_client()
 
@@ -139,6 +170,12 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             "name": name,
             "parse": "1" if parse else "0",
         }
+
+        if parent_task_id:
+            params["parent_task_id"] = parent_task_id
+
+        if external_id:
+            params["external_id"] = external_id
 
         if list_name:
             lists_result = await client.call("rtm.lists.getList")
@@ -479,6 +516,58 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         )
 
     @mcp.tool()
+    async def move_task_priority(
+        ctx: Context,
+        direction: str,
+        task_name: str | None = None,
+        task_id: str | None = None,
+        taskseries_id: str | None = None,
+        list_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Move a task's priority up or down by one level.
+
+        Up: none → low → medium → high. Down: high → medium → low → none.
+
+        Args:
+            direction: "up" or "down"
+            task_name: Task name to search for
+            task_id: Specific task ID
+            taskseries_id: Task series ID
+            list_id: List ID
+
+        Returns:
+            Updated task details with new priority
+        """
+        if direction not in ("up", "down"):
+            return build_response(
+                data={"error": f"Invalid direction: {direction}. Must be 'up' or 'down'."},
+            )
+
+        client: RTMClient = await get_client()
+        ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
+        if "error" in ids:
+            return build_response(data=ids)
+
+        result = await client.call(
+            "rtm.tasks.movePriority",
+            require_timeline=True,
+            direction=direction,
+            **ids,
+        )
+
+        tasks = parse_tasks_response(result)
+        task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
+
+        return build_response(
+            data={
+                "task": format_task(task_data, timezone=timezone),
+                "message": f"Priority moved {direction}",
+            },
+            transaction_id=get_transaction_id(result),
+        )
+
+    @mcp.tool()
     async def postpone_task(
         ctx: Context,
         task_name: str | None = None,
@@ -673,6 +762,56 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         )
 
     @mcp.tool()
+    async def set_task_tags(
+        ctx: Context,
+        tags: str,
+        task_name: str | None = None,
+        task_id: str | None = None,
+        taskseries_id: str | None = None,
+        list_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Replace all tags on a task.
+
+        This sets the complete tag list — any existing tags not in the new list
+        will be removed. Use add_task_tags/remove_task_tags for incremental changes.
+
+        Args:
+            tags: Comma-separated tags to set (e.g., "work,action,urgent").
+                  Empty string to clear all tags.
+            task_name: Task name to search for
+            task_id: Specific task ID
+            taskseries_id: Task series ID
+            list_id: List ID
+
+        Returns:
+            Updated task details with new tags
+        """
+        client: RTMClient = await get_client()
+        ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
+        if "error" in ids:
+            return build_response(data=ids)
+
+        result = await client.call(
+            "rtm.tasks.setTags",
+            require_timeline=True,
+            tags=tags,
+            **ids,
+        )
+
+        tasks = parse_tasks_response(result)
+        task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
+
+        message = f"Tags set to: {tags}" if tags else "All tags cleared"
+        return build_response(
+            data={
+                "task": format_task(task_data, timezone=timezone),
+                "message": message,
+            },
+            transaction_id=get_transaction_id(result),
+        )
+
+    @mcp.tool()
     async def set_task_recurrence(
         ctx: Context,
         repeat: str,
@@ -851,6 +990,61 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"URL set: {url}" if url else "URL cleared"
+        return build_response(
+            data={
+                "task": format_task(task_data, timezone=timezone),
+                "message": message,
+            },
+            transaction_id=get_transaction_id(result),
+        )
+
+    @mcp.tool()
+    async def set_parent_task(
+        ctx: Context,
+        task_name: str | None = None,
+        task_id: str | None = None,
+        taskseries_id: str | None = None,
+        list_id: str | None = None,
+        parent_task_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Move a task under a parent (making it a subtask) or promote it to top-level.
+
+        Pro accounts only. Max 3 levels of nesting.
+
+        Args:
+            task_name: Task name to search for
+            task_id: Specific task ID
+            taskseries_id: Task series ID
+            list_id: List ID
+            parent_task_id: New parent's task ID, or omit/None to make top-level
+
+        Returns:
+            Updated task details with transaction ID for undo
+        """
+        client: RTMClient = await get_client()
+        ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
+        if "error" in ids:
+            return build_response(data=ids)
+
+        call_params: dict[str, Any] = {**ids}
+        if parent_task_id:
+            call_params["parent_task_id"] = parent_task_id
+
+        result = await client.call(
+            "rtm.tasks.setParentTask",
+            require_timeline=True,
+            **call_params,
+        )
+
+        tasks = parse_tasks_response(result)
+        task_data = tasks[0] if tasks else {}
+        timezone = await _get_user_timezone(client)
+
+        if parent_task_id:
+            message = f"Moved under parent task {parent_task_id}"
+        else:
+            message = "Promoted to top-level task"
+
         return build_response(
             data={
                 "task": format_task(task_data, timezone=timezone),

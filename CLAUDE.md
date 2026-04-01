@@ -11,7 +11,7 @@ src/rtm_mcp/
 ├── exceptions.py       # RTMError hierarchy
 ├── response_builder.py # Consistent response formatting
 ├── tools/
-│   ├── tasks.py        # Task CRUD + metadata (19 tools)
+│   ├── tasks.py        # Task CRUD + metadata + hierarchy (19 tools)
 │   ├── lists.py        # List management (7 tools)
 │   ├── notes.py        # Note operations (4 tools)
 │   └── utilities.py    # Tags, locations, settings, undo
@@ -71,6 +71,31 @@ RTM uses three IDs for task operations:
 
 Tools accept either `task_name` (fuzzy search) or all three IDs.
 
+### Subtask Hierarchy
+
+RTM supports parent/child task relationships (Pro required, max 3 levels):
+
+- **`parent_task_id`** is extracted from the `taskseries` element (not `task`) and appears as empty string for top-level tasks — the parser normalises this to `None`
+- Subtasks are sibling taskseries entries under the same list, NOT nested inside their parent
+- **`subtask_count`** is computed client-side from the current result set via `_apply_subtask_counts()` — it does not make a secondary API call
+- `list_tasks` accepts a `parent_task_id` parameter: it injects `isSubtask:true` into the server-side filter, then applies client-side filtering by parent ID
+- `add_task` accepts `parent_task_id` to create a task as a subtask
+- `set_parent_task` reparents a task or promotes it to top-level (pass empty `parent_task_id`)
+- RTM error codes: 4060 = max nesting exceeded, 4040 = Pro required
+
+### Write Response Format
+
+RTM returns different JSON structures for reads vs writes:
+- **Read** (`getList`): `{"tasks": {"list": [...]}}`
+- **Write** (`add`, `complete`, `setTags`, etc.): `{"list": {...}}`
+
+`parse_tasks_response` handles both via fallback:
+```python
+task_lists = result.get("tasks", {}).get("list", [])
+if not task_lists and "list" in result:
+    task_lists = result["list"]
+```
+
 ## RTM API Quirks
 
 ### Response Normalization
@@ -107,13 +132,31 @@ transaction_id = result.get("transaction", {}).get("id")
 make test
 ```
 
-Tests use respx for HTTP mocking:
+Tests use respx for HTTP mocking and a FakeMCP pattern for tool-level tests:
 
 ```python
+# HTTP mocking with respx
 @pytest.fixture
 def mock_rtm(respx_mock):
     respx_mock.get(RTM_API_URL).mock(return_value=httpx.Response(200, json={...}))
 ```
+
+```python
+# FakeMCP pattern — captures @mcp.tool() decorated functions for unit testing
+class FakeMCP:
+    def __init__(self):
+        self.tools = {}
+    def tool(self):
+        def decorator(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+        return decorator
+```
+
+Test files:
+- `tests/test_response_builder.py` — parser and formatter tests (30 tests)
+- `tests/test_tools/test_tasks.py` — `_apply_subtask_counts` and `_analyze_tasks` helpers (17 tests)
+- `tests/test_tools/test_task_tools.py` — all 19 task tools via FakeMCP (60 tests)
 
 ### Integration Testing
 
@@ -151,7 +194,7 @@ asyncio.run(test())
 2. Add tool function in appropriate tools/*.py file
 3. Use `require_timeline=True` for write operations
 4. Return via `build_response()` with transaction_id if applicable
-5. Add tests
+5. Add tests (unit tests for helpers, FakeMCP tests for tool functions)
 
 Example:
 

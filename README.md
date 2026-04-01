@@ -7,6 +7,7 @@ Enables Claude to manage your tasks through natural language conversation.
 ## Features
 
 - **Full RTM API Coverage**: 30+ tools covering tasks, lists, tags, notes, and more
+- **Subtask Hierarchy**: Full parent/child task support with `parent_task_id`, subtask counts, and nesting up to 3 levels
 - **Smart Add Syntax**: Natural language task creation (`"Call mom ^tomorrow !1 #family"`)
 - **Undo Support**: All write operations return transaction IDs for undo
 - **Async Performance**: Built on httpx with connection pooling
@@ -81,6 +82,11 @@ Once configured, you can ask Claude to manage your tasks:
 - *"What high priority tasks do I have?"*
 - *"Move the meeting prep task to my Work list"*
 - *"Add a note to the project task"*
+- *"Show me the subtasks of my Project Alpha task"*
+- *"Create a subtask under the Website Redesign task"*
+- *"Move the research task under the Q2 Planning parent"*
+- *"Replace all tags on the report task with #review and #urgent"*
+- *"Bump the priority of the deployment task up one level"*
 
 ## Smart Add Syntax
 
@@ -97,23 +103,36 @@ When adding tasks, use RTM's Smart Add syntax:
 
 Example: `"Review report ^friday !1 #work =1h *weekly"`
 
+## Subtask Hierarchy
+
+Tasks support parent/child relationships up to 3 levels deep (RTM Pro required):
+
+- **`parent_task_id`** is included in every task response, linking children to their parent
+- **`subtask_count`** on each task shows how many subtasks appear in the current result set
+- **Create subtasks** by passing `parent_task_id` to `add_task`
+- **Reparent or promote** tasks with `set_parent_task` (pass empty `parent_task_id` to promote to top-level)
+- **Filter by parent** using the `parent_task_id` parameter on `list_tasks`
+
 ## Available Tools
 
 ### Tasks
-- `list_tasks` - List tasks with filters
-- `add_task` - Create a new task
+- `list_tasks` - List tasks with filters (supports `parent_task_id` to fetch subtasks of a specific parent)
+- `add_task` - Create a new task (supports `parent_task_id` to create as subtask, `external_id` for external tracking)
 - `complete_task` / `uncomplete_task` - Mark done or reopen
 - `delete_task` - Remove a task
 - `postpone_task` - Move due date by one day
 - `move_task` - Move to different list
+- `set_parent_task` - Move a task under a parent or promote to top-level
 - `set_task_name` - Rename task
 - `set_task_due_date` - Change due date
 - `set_task_priority` - Set priority level
+- `move_task_priority` - Shift priority up or down by one level
 - `set_task_recurrence` - Set repeat pattern
 - `set_task_start_date` - Set start date
 - `set_task_estimate` - Set time estimate
 - `set_task_url` - Attach URL
-- `add_task_tags` / `remove_task_tags` - Manage tags
+- `add_task_tags` / `remove_task_tags` - Manage tags incrementally
+- `set_task_tags` - Replace all tags on a task in one call
 
 ### Notes
 - `add_note` - Add note to task

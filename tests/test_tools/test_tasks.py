@@ -2,6 +2,175 @@
 
 # These tests verify the helper functions used by task tools
 
+from rtm_mcp.tools.tasks import _apply_subtask_counts
+
+
+class TestApplySubtaskCounts:
+    """Test subtask count computation."""
+
+    def test_parent_with_children(self) -> None:
+        """Test that parent gets correct subtask_count from children in result set."""
+        tasks = [
+            {"id": "100", "name": "Parent", "parent_task_id": None},
+            {"id": "200", "name": "Child A", "parent_task_id": "100"},
+            {"id": "300", "name": "Child B", "parent_task_id": "100"},
+        ]
+        _apply_subtask_counts(tasks)
+        assert tasks[0]["subtask_count"] == 2
+        assert tasks[1]["subtask_count"] == 0
+        assert tasks[2]["subtask_count"] == 0
+
+    def test_parent_without_children_in_set(self) -> None:
+        """Test that parent has subtask_count=0 when children are not in result set."""
+        tasks = [
+            {"id": "100", "name": "Parent", "parent_task_id": None},
+        ]
+        _apply_subtask_counts(tasks)
+        assert tasks[0]["subtask_count"] == 0
+
+    def test_children_without_parent_in_set(self) -> None:
+        """Test that orphan children don't increment counts on missing parents."""
+        tasks = [
+            {"id": "200", "name": "Child A", "parent_task_id": "100"},
+            {"id": "300", "name": "Child B", "parent_task_id": "100"},
+        ]
+        _apply_subtask_counts(tasks)
+        assert tasks[0]["subtask_count"] == 0
+        assert tasks[1]["subtask_count"] == 0
+
+    def test_empty_list(self) -> None:
+        """Test with empty task list."""
+        tasks: list[dict] = []
+        _apply_subtask_counts(tasks)
+        assert tasks == []
+
+    def test_no_hierarchy(self) -> None:
+        """Test with tasks that have no parent-child relationships."""
+        tasks = [
+            {"id": "100", "name": "Task A", "parent_task_id": None},
+            {"id": "200", "name": "Task B", "parent_task_id": None},
+        ]
+        _apply_subtask_counts(tasks)
+        assert tasks[0]["subtask_count"] == 0
+        assert tasks[1]["subtask_count"] == 0
+
+    def test_nested_hierarchy(self) -> None:
+        """Test three levels: grandparent → parent → child."""
+        tasks = [
+            {"id": "100", "name": "Grandparent", "parent_task_id": None},
+            {"id": "200", "name": "Parent", "parent_task_id": "100"},
+            {"id": "300", "name": "Child", "parent_task_id": "200"},
+        ]
+        _apply_subtask_counts(tasks)
+        assert tasks[0]["subtask_count"] == 1  # Parent is its child
+        assert tasks[1]["subtask_count"] == 1  # Child is its child
+        assert tasks[2]["subtask_count"] == 0
+
+
+    def test_multiple_parents_with_different_children(self) -> None:
+        """Test multiple independent parent-child groups in one result set."""
+        tasks = [
+            {"id": "100", "name": "Project A", "parent_task_id": None},
+            {"id": "200", "name": "A - Task 1", "parent_task_id": "100"},
+            {"id": "300", "name": "A - Task 2", "parent_task_id": "100"},
+            {"id": "400", "name": "Project B", "parent_task_id": None},
+            {"id": "500", "name": "B - Task 1", "parent_task_id": "400"},
+        ]
+        _apply_subtask_counts(tasks)
+
+        proj_a = next(t for t in tasks if t["id"] == "100")
+        proj_b = next(t for t in tasks if t["id"] == "400")
+        assert proj_a["subtask_count"] == 2
+        assert proj_b["subtask_count"] == 1
+
+    def test_mid_level_task_is_both_child_and_parent(self) -> None:
+        """A task that is both a subtask of a grandparent AND has its own children."""
+        tasks = [
+            {"id": "100", "name": "Grandparent", "parent_task_id": None},
+            {"id": "200", "name": "Mid-level", "parent_task_id": "100"},
+            {"id": "300", "name": "Leaf A", "parent_task_id": "200"},
+            {"id": "400", "name": "Leaf B", "parent_task_id": "200"},
+        ]
+        _apply_subtask_counts(tasks)
+
+        grandparent = next(t for t in tasks if t["id"] == "100")
+        mid = next(t for t in tasks if t["id"] == "200")
+        leaf_a = next(t for t in tasks if t["id"] == "300")
+
+        assert grandparent["subtask_count"] == 1  # Mid-level
+        assert mid["subtask_count"] == 2  # Leaf A + Leaf B
+        assert leaf_a["subtask_count"] == 0
+
+    def test_count_reflects_incomplete_children_only(self) -> None:
+        """Simulate list_tasks default: completed children are filtered out before counting."""
+        all_tasks = [
+            {"id": "100", "name": "Parent", "parent_task_id": None, "completed": None},
+            {"id": "200", "name": "Child A", "parent_task_id": "100", "completed": None},
+            {"id": "300", "name": "Child B", "parent_task_id": "100", "completed": "2026-03-30T10:00:00Z"},
+        ]
+        # Simulate the incomplete filter applied in list_tasks
+        tasks = [t for t in all_tasks if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+
+        parent = next(t for t in tasks if t["id"] == "100")
+        assert parent["subtask_count"] == 1  # Only Child A (incomplete)
+
+    def test_count_zero_when_all_children_completed(self) -> None:
+        """When all children are completed and filtered out, parent subtask_count is 0."""
+        all_tasks = [
+            {"id": "100", "name": "Parent", "parent_task_id": None, "completed": None},
+            {"id": "200", "name": "Child A", "parent_task_id": "100", "completed": "2026-03-30T10:00:00Z"},
+            {"id": "300", "name": "Child B", "parent_task_id": "100", "completed": "2026-03-30T11:00:00Z"},
+        ]
+        tasks = [t for t in all_tasks if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+
+        parent = next(t for t in tasks if t["id"] == "100")
+        assert parent["subtask_count"] == 0
+
+    def test_count_with_include_completed(self) -> None:
+        """Simulate include_completed=True: all children counted regardless of status."""
+        tasks = [
+            {"id": "100", "name": "Parent", "parent_task_id": None, "completed": None},
+            {"id": "200", "name": "Child A", "parent_task_id": "100", "completed": None},
+            {"id": "300", "name": "Child B", "parent_task_id": "100", "completed": "2026-03-30T10:00:00Z"},
+        ]
+        # No completion filter — simulates include_completed=True
+        _apply_subtask_counts(tasks)
+
+        parent = next(t for t in tasks if t["id"] == "100")
+        assert parent["subtask_count"] == 2
+
+    def test_count_progressive_completion(self) -> None:
+        """Simulate subtasks being completed one by one."""
+        parent = {"id": "100", "name": "Parent", "parent_task_id": None, "completed": None}
+        child_a = {"id": "200", "name": "Child A", "parent_task_id": "100", "completed": None}
+        child_b = {"id": "300", "name": "Child B", "parent_task_id": "100", "completed": None}
+        child_c = {"id": "400", "name": "Child C", "parent_task_id": "100", "completed": None}
+
+        # All incomplete
+        tasks = [t for t in [parent, child_a, child_b, child_c] if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+        assert parent["subtask_count"] == 3
+
+        # Complete one
+        child_a["completed"] = "2026-04-01T09:00:00Z"
+        tasks = [t for t in [parent, child_a, child_b, child_c] if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+        assert parent["subtask_count"] == 2
+
+        # Complete another
+        child_b["completed"] = "2026-04-01T10:00:00Z"
+        tasks = [t for t in [parent, child_a, child_b, child_c] if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+        assert parent["subtask_count"] == 1
+
+        # Complete last
+        child_c["completed"] = "2026-04-01T11:00:00Z"
+        tasks = [t for t in [parent, child_a, child_b, child_c] if not t.get("completed")]
+        _apply_subtask_counts(tasks)
+        assert parent["subtask_count"] == 0
+
 
 class TestTaskAnalysis:
     """Test task analysis functionality."""

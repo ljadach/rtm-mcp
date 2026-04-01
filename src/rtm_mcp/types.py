@@ -27,6 +27,7 @@ class RTMTask(BaseModel):
     url: str | None = None
     location_id: str | None = None
     parent_task_id: str | None = None
+    subtask_count: int = 0
     created: str | None = None
     modified: str | None = None
 
