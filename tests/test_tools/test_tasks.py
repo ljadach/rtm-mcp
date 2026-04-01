@@ -216,7 +216,7 @@ class TestTaskAnalysis:
 
     def test_analyze_tasks_with_timezone(self) -> None:
         """Test that timezone is properly applied for date comparisons."""
-        from datetime import UTC, datetime, timedelta
+        from datetime import UTC, datetime
         from zoneinfo import ZoneInfo
 
         from rtm_mcp.tools.tasks import _analyze_tasks

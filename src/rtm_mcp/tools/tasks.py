@@ -1,5 +1,6 @@
 """Task management tools for RTM MCP."""
 
+import contextlib
 from typing import Any
 
 from fastmcp import Context
@@ -1172,15 +1173,10 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
     # RTM due dates are relative to the user's timezone
     user_tz = None
     if timezone:
-        try:
+        with contextlib.suppress(Exception):
             user_tz = ZoneInfo(timezone)
-        except Exception:
-            pass
 
-    if user_tz:
-        now = datetime.now(user_tz)
-    else:
-        now = datetime.now(UTC)
+    now = datetime.now(user_tz) if user_tz else datetime.now(UTC)
     today = now.date()
 
     for task in tasks:

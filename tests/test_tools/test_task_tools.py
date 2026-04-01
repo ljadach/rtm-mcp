@@ -1,12 +1,9 @@
 """Tests for task MCP tools via mocked RTM client."""
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
-
-from rtm_mcp.response_builder import format_task, parse_tasks_response
-
 
 # ---------------------------------------------------------------------------
 # Helpers: build realistic RTM API responses
@@ -293,12 +290,7 @@ class TestListTasks:
 
         # We need list lookup then task fetch, but the tool calls getList first
         # then lists. Let me use call_map instead.
-        call_count = {"n": 0}
-        responses = [getlist_resp, lists_resp, getlist_resp, settings_resp]
-
         async def _side(method, **kw):
-            idx = call_count["n"]
-            call_count["n"] += 1
             # First call is getList for tasks, second is getLists, etc.
             if method == "rtm.lists.getList":
                 return lists_resp
@@ -312,8 +304,8 @@ class TestListTasks:
         assert result["data"]["count"] == 1
 
         # Verify list_id was passed
-        task_call = [c for c in client.call.call_args_list
-                     if c.args[0] == "rtm.tasks.getList"][0]
+        task_call = next(c for c in client.call.call_args_list
+                        if c.args[0] == "rtm.tasks.getList")
         assert task_call.kwargs.get("list_id") == "5"
 
 
@@ -459,7 +451,7 @@ class TestCompleteTask:
 
     @pytest.mark.asyncio
     async def test_complete_missing_ids(self, task_tools):
-        tools, client = task_tools
+        tools, _client = task_tools
 
         result = await tools["complete_task"](FakeContext(), task_id="100")
         assert "error" in result["data"]
@@ -744,7 +736,7 @@ class TestMoveTaskPriority:
 
     @pytest.mark.asyncio
     async def test_invalid_direction(self, task_tools):
-        tools, client = task_tools
+        tools, _client = task_tools
 
         result = await tools["move_task_priority"](
             FakeContext(), direction="sideways", task_name="Task",
@@ -952,11 +944,11 @@ class TestSmartListFilter:
 
         client.call = AsyncMock(side_effect=_side)
 
-        result = await tools["list_tasks"](FakeContext(), list_name="Due Today")
+        await tools["list_tasks"](FakeContext(), list_name="Due Today")
 
         # Should NOT pass list_id for smart lists — should merge the filter
-        task_call = [c for c in client.call.call_args_list
-                     if c.args[0] == "rtm.tasks.getList"][0]
+        task_call = next(c for c in client.call.call_args_list
+                        if c.args[0] == "rtm.tasks.getList")
         assert "list_id" not in task_call.kwargs
         assert "dueBefore:tomorrow" in task_call.kwargs.get("filter", "")
 
@@ -988,8 +980,8 @@ class TestSmartListFilter:
 
         await tools["list_tasks"](FakeContext(), list_name="My Smart")
 
-        task_call = [c for c in client.call.call_args_list
-                     if c.args[0] == "rtm.tasks.getList"][0]
+        task_call = next(c for c in client.call.call_args_list
+                        if c.args[0] == "rtm.tasks.getList")
         filt = task_call.kwargs.get("filter", "")
         # Non-breaking spaces should be replaced with regular spaces
         assert "\xa0" not in filt
@@ -1018,7 +1010,7 @@ class TestFindTask:
         )
         _setup_calls(client, [find_resp, complete_resp, settings_resp])
 
-        result = await tools["complete_task"](FakeContext(), task_name="Buy milk")
+        await tools["complete_task"](FakeContext(), task_name="Buy milk")
         # Should have used the exact match (task_id 100)
         complete_call = client.call.call_args_list[1]
         assert complete_call.kwargs["task_id"] == "100"
@@ -1036,7 +1028,7 @@ class TestFindTask:
         )
         _setup_calls(client, [find_resp, complete_resp, settings_resp])
 
-        result = await tools["complete_task"](FakeContext(), task_name="milk")
+        await tools["complete_task"](FakeContext(), task_name="milk")
         # Should have found via partial match
         complete_call = client.call.call_args_list[1]
         assert complete_call.kwargs["task_id"] == "200"

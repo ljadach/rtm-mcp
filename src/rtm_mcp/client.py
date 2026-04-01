@@ -7,10 +7,10 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger(__name__)
-
 from .config import RTM_API_URL, RTMConfig
 from .exceptions import RTMError, RTMNetworkError, RTMRateLimitError, raise_for_error
+
+logger = logging.getLogger(__name__)
 
 
 class RTMClient:
