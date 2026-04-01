@@ -14,7 +14,7 @@ src/rtm_mcp/
 │   ├── tasks.py        # Task CRUD + metadata + hierarchy (19 tools)
 │   ├── lists.py        # List management (7 tools)
 │   ├── notes.py        # Note operations (4 tools)
-│   └── utilities.py    # Tags, locations, settings, undo (9 tools)
+│   └── utilities.py    # Tags, locations, settings, undo, timeline (11 tools)
 └── scripts/
     └── setup_auth.py   # Interactive auth setup CLI
 ```
@@ -44,7 +44,9 @@ All tools return consistent structure:
     "analysis": {"insights": [...]},  # Optional insights
     "metadata": {
         "fetched_at": "ISO timestamp",
-        "transaction_id": "..."       # For undo support
+        "transaction_id": "...",       # For undo support (write ops only)
+        "transaction_undoable": True,  # Whether undo is possible (write ops only)
+        "timeline_id": "...",          # Session timeline ID (write ops only)
     }
 }
 ```
@@ -151,13 +153,22 @@ All write operations require a timeline:
 await client.call("rtm.tasks.complete", require_timeline=True, ...)
 ```
 
-### Transaction IDs
+### Transaction Log and Undo
 
-Write operations return transaction IDs for undo:
+All write tools record their transaction in an in-memory log on `RTMClient` via `record_and_build_response()`. This helper extracts the transaction ID and undoable flag, records the entry, and builds the response with `transaction_id`, `transaction_undoable`, and `timeline_id` metadata in one call:
 
 ```python
-transaction_id = result.get("transaction", {}).get("id")
+return record_and_build_response(client, result, data={...}, tool_name="add_task")
 ```
+
+The transaction log (`client.get_all_transactions()`) enables:
+- `get_timeline_info` — inspect the session's full write history
+- `batch_undo` — undo multiple operations in reverse chronological order
+- `undo` — marks the transaction as undone in the log after successful undo
+
+Key classes:
+- `TransactionEntry` (dataclass in `client.py`): `transaction_id`, `method`, `undoable`, `undone`, `summary`
+- `record_and_build_response` (in `response_builder.py`): combines `get_transaction_info` + `client.record_transaction` + `build_response`
 
 ## Testing
 
@@ -188,16 +199,16 @@ class FakeMCP:
         return decorator
 ```
 
-Test files (198 tests total):
-- `tests/test_client.py` — client signing, API calls, timeline caching (7 tests)
+Test files (225 tests total):
+- `tests/test_client.py` — client signing, API calls, timeline caching, transaction log (16 tests)
 - `tests/test_config.py` — config load/save, file fallback, corrupt JSON (10 tests)
 - `tests/test_exceptions.py` — error code mapping including subtask codes 4040-4090 (16 tests)
-- `tests/test_response_builder.py` — parser and formatter tests (30 tests)
+- `tests/test_response_builder.py` — parser, formatter, get_transaction_info, record_and_build_response (40 tests)
 - `tests/test_tools/test_task_tools.py` — all 19 task tools via FakeMCP (60 tests)
 - `tests/test_tools/test_tasks.py` — `_apply_subtask_counts` and `_analyze_tasks` helpers (17 tests)
 - `tests/test_tools/test_list_tools.py` — all 7 list tools via FakeMCP (16 tests)
 - `tests/test_tools/test_note_tools.py` — all 4 note tools via FakeMCP (14 tests)
-- `tests/test_tools/test_utility_tools.py` — all 9 utility tools via FakeMCP (25 tests)
+- `tests/test_tools/test_utility_tools.py` — all 11 utility tools via FakeMCP (33 tests)
 - `tests/test_tools/test_lists.py` — list response filtering and sorting (3 tests)
 
 ### Integration Testing
@@ -236,7 +247,7 @@ asyncio.run(test())
 2. Add tool function in appropriate tools/*.py file
 3. Write an enriched docstring following Anthropic's best practices: opening sentence (what + when), parameter semantics, return shape, examples, and edge cases
 4. Use `require_timeline=True` for write operations
-5. Return via `build_response()` with transaction_id if applicable
+5. Return via `record_and_build_response()` for write tools (records transaction + builds response)
 6. Use actionable error messages that suggest the next tool to call
 7. Add tests (unit tests for helpers, FakeMCP tests for tool functions)
 
@@ -272,9 +283,10 @@ async def set_task_location(
         **ids,
     )
 
-    return build_response(
+    return record_and_build_response(
+        client, result,
         data={"message": "Location set"},
-        transaction_id=get_transaction_id(result),
+        tool_name="set_task_location",
     )
 ```
 

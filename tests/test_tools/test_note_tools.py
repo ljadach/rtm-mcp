@@ -1,7 +1,7 @@
 """Tests for note MCP tools via mocked RTM client."""
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
@@ -84,6 +84,8 @@ def note_tools(mock_client):
 def mock_client():
     client = AsyncMock()
     client.call = AsyncMock()
+    client.record_transaction = MagicMock()
+    type(client).timeline_id = PropertyMock(return_value="tl_test")
     return client
 
 

@@ -9,9 +9,9 @@ from ..client import RTMClient
 from ..response_builder import (
     build_response,
     format_task,
-    get_transaction_id,
     parse_tasks_response,
     priority_to_code,
+    record_and_build_response,
 )
 
 
@@ -224,15 +224,16 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         # Parse the created task
         tasks = parse_tasks_response(result)
         task = tasks[0] if tasks else {}
-        transaction_id = get_transaction_id(result)
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task, timezone=timezone),
                 "message": f"Created task: {task.get('name', name)}",
             },
-            transaction_id=transaction_id,
+            tool_name="add_task",
         )
 
     @mcp.tool()
@@ -280,17 +281,18 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             task_id=task_id,
         )
 
-        transaction_id = get_transaction_id(result)
         tasks = parse_tasks_response(result)
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Completed: {task_data.get('name', '')}",
             },
-            transaction_id=transaction_id,
+            tool_name="complete_task",
         )
 
     @mcp.tool()
@@ -343,12 +345,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Reopened: {task_data.get('name', '')}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="uncomplete_task",
         )
 
     @mcp.tool()
@@ -396,9 +400,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             task_id=task_id,
         )
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={"message": f"Deleted: {deleted_name}"},
-            transaction_id=get_transaction_id(result),
+            tool_name="delete_task",
         )
 
     @mcp.tool()
@@ -434,12 +440,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Renamed to: {new_name}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_name",
         )
 
     @mcp.tool()
@@ -479,12 +487,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"Due date set to: {due}" if due else "Due date cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_due_date",
         )
 
     @mcp.tool()
@@ -523,12 +533,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Priority set to: {priority}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_priority",
         )
 
     @mcp.tool()
@@ -570,12 +582,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Priority moved {direction}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="move_task_priority",
         )
 
     @mcp.tool()
@@ -610,12 +624,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": "Task postponed",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="postpone_task",
         )
 
     @mcp.tool()
@@ -669,12 +685,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Moved to: {to_list_name}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="move_task",
         )
 
     @mcp.tool()
@@ -713,12 +731,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Added tags: {tags}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="add_task_tags",
         )
 
     @mcp.tool()
@@ -757,12 +777,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         task_data = tasks[0] if tasks else {}
         timezone = await _get_user_timezone(client)
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": f"Removed tags: {tags}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="remove_task_tags",
         )
 
     @mcp.tool()
@@ -804,12 +826,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"Tags set to: {tags}" if tags else "All tags cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_tags",
         )
 
     @mcp.tool()
@@ -852,12 +876,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"Recurrence set: {repeat}" if repeat else "Recurrence cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_recurrence",
         )
 
     @mcp.tool()
@@ -896,12 +922,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"Start date set: {start}" if start else "Start date cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_start_date",
         )
 
     @mcp.tool()
@@ -939,12 +967,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"Estimate set: {estimate}" if estimate else "Estimate cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_estimate",
         )
 
     @mcp.tool()
@@ -981,12 +1011,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         timezone = await _get_user_timezone(client)
 
         message = f"URL set: {url}" if url else "URL cleared"
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_task_url",
         )
 
     @mcp.tool()
@@ -1042,12 +1074,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         else:
             message = "Promoted to top-level task"
 
-        return build_response(
+        return record_and_build_response(
+            client,
+            result,
             data={
                 "task": format_task(task_data, timezone=timezone),
                 "message": message,
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="set_parent_task",
         )
 
 

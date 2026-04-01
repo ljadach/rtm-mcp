@@ -87,6 +87,8 @@ This server provides full access to Remember The Milk's task management features
 - check_auth: Verify authentication
 - get_settings: View user preferences
 - undo: Undo previous operation using transaction_id
+- batch_undo: Undo multiple operations in reverse order
+- get_timeline_info: View session timeline and transaction history
 
 ## Smart Add Syntax
 When adding tasks, use Smart Add for quick entry:

@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -11,6 +13,17 @@ from .config import RTM_API_URL, RTMConfig
 from .exceptions import RTMError, RTMNetworkError, RTMRateLimitError, raise_for_error
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TransactionEntry:
+    """Record of a single write operation for timeline introspection and batch undo."""
+
+    transaction_id: str
+    method: str
+    undoable: bool
+    undone: bool = False
+    summary: str = ""
 
 
 class RTMClient:
@@ -26,9 +39,12 @@ class RTMClient:
     def __init__(self, config: RTMConfig):
         self.config = config
         self._timeline: str | None = None
+        self._timeline_created_at: str | None = None
         self._http: httpx.AsyncClient | None = None
         self._rate_limit_lock = asyncio.Lock()
         self._last_request_time: float = 0
+        self._transaction_log: list[TransactionEntry] = []
+        self._transaction_index: dict[str, TransactionEntry] = {}
 
     async def _get_http(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
@@ -141,7 +157,45 @@ class RTMClient:
         if self._timeline is None:
             result = await self.call("rtm.timelines.create")
             self._timeline = str(result["timeline"])
+            self._timeline_created_at = datetime.now().isoformat()
         return self._timeline
+
+    @property
+    def timeline_id(self) -> str | None:
+        """The current session's timeline ID, or None if no writes yet."""
+        return self._timeline
+
+    @property
+    def timeline_created_at(self) -> str | None:
+        """ISO timestamp of when the timeline was created."""
+        return self._timeline_created_at
+
+    def record_transaction(
+        self, transaction_id: str, method: str, undoable: bool, summary: str = ""
+    ) -> None:
+        """Record a write operation in the session transaction log."""
+        entry = TransactionEntry(
+            transaction_id=transaction_id,
+            method=method,
+            undoable=undoable,
+            summary=summary,
+        )
+        self._transaction_log.append(entry)
+        self._transaction_index[transaction_id] = entry
+
+    def mark_undone(self, transaction_id: str) -> None:
+        """Mark a transaction as undone."""
+        entry = self._transaction_index.get(transaction_id)
+        if entry:
+            entry.undone = True
+
+    def get_transaction(self, transaction_id: str) -> TransactionEntry | None:
+        """Look up a transaction by ID."""
+        return self._transaction_index.get(transaction_id)
+
+    def get_all_transactions(self) -> list[TransactionEntry]:
+        """Return the full transaction log in chronological order."""
+        return list(self._transaction_log)
 
     async def test_echo(self) -> dict[str, Any]:
         """Test API connectivity (rtm.test.echo)."""

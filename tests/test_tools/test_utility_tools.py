@@ -1,9 +1,11 @@
 """Tests for utility MCP tools via mocked RTM client."""
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
+
+from rtm_mcp.client import TransactionEntry
 
 
 class FakeMCP:
@@ -27,6 +29,13 @@ def mock_client():
     client.call = AsyncMock()
     client.test_echo = AsyncMock()
     client.check_token = AsyncMock()
+    # Sync methods must not be AsyncMock to avoid coroutine warnings
+    client.mark_undone = MagicMock()
+    client.record_transaction = MagicMock()
+    client.get_transaction = MagicMock(return_value=None)
+    client.get_all_transactions = MagicMock(return_value=[])
+    type(client).timeline_id = PropertyMock(return_value=None)
+    type(client).timeline_created_at = PropertyMock(return_value=None)
     return client
 
 
@@ -301,6 +310,7 @@ class TestUndo:
         result = await tools["undo"](FakeContext(), transaction_id="tx123")
         assert result["data"]["status"] == "success"
         assert result["data"]["transaction_id"] == "tx123"
+        client.mark_undone.assert_called_once_with("tx123")
 
     @pytest.mark.asyncio
     async def test_failure(self, util_tools):
@@ -310,6 +320,7 @@ class TestUndo:
         result = await tools["undo"](FakeContext(), transaction_id="tx456")
         assert result["data"]["status"] == "error"
         assert "Cannot undo" in result["data"]["error"]
+        client.mark_undone.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -403,3 +414,160 @@ class TestGetGroups:
 
         result = await tools["get_groups"](FakeContext())
         assert result["data"]["count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# batch_undo
+# ---------------------------------------------------------------------------
+
+class TestBatchUndo:
+    @pytest.mark.asyncio
+    async def test_undo_multiple(self, util_tools):
+        tools, client = util_tools
+        entries = [
+            TransactionEntry("tx1", "add_task", True, summary="First"),
+            TransactionEntry("tx2", "complete_task", True, summary="Second"),
+            TransactionEntry("tx3", "delete_task", True, summary="Third"),
+        ]
+        client.get_all_transactions = MagicMock(return_value=entries)
+        client.get_transaction = MagicMock(side_effect=lambda tid: next(
+            (e for e in entries if e.transaction_id == tid), None
+        ))
+        client.call = AsyncMock(return_value={"stat": "ok"})
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        result = await tools["batch_undo"](FakeContext(), transaction_ids=["tx1", "tx3"])
+        # Should undo tx3 first (most recent), then tx1
+        assert result["data"]["undone"] == ["tx3", "tx1"]
+        assert result["data"]["skipped"] == []
+        assert result["data"]["failed"] is None
+        assert result["data"]["timeline_id"] == "tl1"
+
+    @pytest.mark.asyncio
+    async def test_unknown_transaction_id(self, util_tools):
+        tools, client = util_tools
+        client.get_transaction = MagicMock(return_value=None)
+
+        result = await tools["batch_undo"](FakeContext(), transaction_ids=["unknown1"])
+        assert "error" in result["data"]
+        assert "unknown1" in result["data"]["error"]
+
+    @pytest.mark.asyncio
+    async def test_skip_already_undone(self, util_tools):
+        tools, client = util_tools
+        entry_done = TransactionEntry("tx1", "add_task", True, undone=True)
+        entry_pending = TransactionEntry("tx2", "complete_task", True)
+        client.get_all_transactions = MagicMock(return_value=[entry_done, entry_pending])
+        client.get_transaction = MagicMock(side_effect=lambda tid: {
+            "tx1": entry_done, "tx2": entry_pending
+        }.get(tid))
+        client.call = AsyncMock(return_value={"stat": "ok"})
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        result = await tools["batch_undo"](FakeContext(), transaction_ids=["tx1", "tx2"])
+        assert "tx1" in result["data"]["skipped"]
+        assert "tx2" in result["data"]["undone"]
+
+    @pytest.mark.asyncio
+    async def test_stop_on_failure(self, util_tools):
+        tools, client = util_tools
+        entries = [
+            TransactionEntry("tx1", "add_task", True),
+            TransactionEntry("tx2", "complete_task", True),
+            TransactionEntry("tx3", "delete_task", True),
+        ]
+        client.get_all_transactions = MagicMock(return_value=entries)
+        client.get_transaction = MagicMock(side_effect=lambda tid: next(
+            (e for e in entries if e.transaction_id == tid), None
+        ))
+        # tx3 succeeds, tx2 fails
+        client.call = AsyncMock(side_effect=[
+            {"stat": "ok"},  # tx3
+            Exception("Server error"),  # tx2
+        ])
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        result = await tools["batch_undo"](
+            FakeContext(), transaction_ids=["tx1", "tx2", "tx3"],
+        )
+        assert result["data"]["undone"] == ["tx3"]
+        assert result["data"]["failed"]["transaction_id"] == "tx2"
+        assert "Server error" in result["data"]["failed"]["error"]
+        # tx1 should not have been attempted
+        assert "tx1" not in result["data"]["undone"]
+        assert "tx1" not in result["data"]["skipped"]
+
+    @pytest.mark.asyncio
+    async def test_reverse_chronological_order(self, util_tools):
+        """Verify undo happens most-recent-first regardless of input order."""
+        tools, client = util_tools
+        entries = [
+            TransactionEntry("tx1", "a", True),
+            TransactionEntry("tx2", "b", True),
+            TransactionEntry("tx3", "c", True),
+        ]
+        client.get_all_transactions = MagicMock(return_value=entries)
+        client.get_transaction = MagicMock(side_effect=lambda tid: next(
+            (e for e in entries if e.transaction_id == tid), None
+        ))
+        call_order = []
+        async def track_call(*args, **kwargs):
+            call_order.append(kwargs.get("transaction_id"))
+            return {"stat": "ok"}
+        client.call = AsyncMock(side_effect=track_call)
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        # Pass in forward order; should still undo in reverse
+        await tools["batch_undo"](FakeContext(), transaction_ids=["tx1", "tx2", "tx3"])
+        assert call_order == ["tx3", "tx2", "tx1"]
+
+    @pytest.mark.asyncio
+    async def test_marks_undone_on_success(self, util_tools):
+        tools, client = util_tools
+        entry = TransactionEntry("tx1", "add_task", True)
+        client.get_all_transactions = MagicMock(return_value=[entry])
+        client.get_transaction = MagicMock(return_value=entry)
+        client.call = AsyncMock(return_value={"stat": "ok"})
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        await tools["batch_undo"](FakeContext(), transaction_ids=["tx1"])
+        client.mark_undone.assert_called_once_with("tx1")
+
+
+# ---------------------------------------------------------------------------
+# get_timeline_info
+# ---------------------------------------------------------------------------
+
+class TestGetTimelineInfo:
+    @pytest.mark.asyncio
+    async def test_no_timeline(self, util_tools):
+        tools, _client = util_tools
+        # defaults from fixture: timeline_id=None, get_all_transactions=[]
+
+        result = await tools["get_timeline_info"](FakeContext())
+        assert result["data"]["timeline_id"] is None
+        assert result["data"]["transaction_count"] == 0
+        assert result["data"]["transactions"] == []
+
+    @pytest.mark.asyncio
+    async def test_with_transactions(self, util_tools):
+        tools, client = util_tools
+        entries = [
+            TransactionEntry("tx1", "add_task", True, summary="Added task"),
+            TransactionEntry("tx2", "complete_task", True, undone=True, summary="Completed"),
+        ]
+        client.get_all_transactions = MagicMock(return_value=entries)
+        type(client).timeline_id = PropertyMock(return_value="tl42")
+        type(client).timeline_created_at = PropertyMock(return_value="2026-04-01T10:00:00")
+
+        result = await tools["get_timeline_info"](FakeContext())
+        assert result["data"]["timeline_id"] == "tl42"
+        assert result["data"]["created_at"] == "2026-04-01T10:00:00"
+        assert result["data"]["transaction_count"] == 2
+
+        tx_list = result["data"]["transactions"]
+        assert tx_list[0]["transaction_id"] == "tx1"
+        assert tx_list[0]["undoable"] is True
+        assert tx_list[0]["undone"] is False
+        assert tx_list[1]["transaction_id"] == "tx2"
+        assert tx_list[1]["undone"] is True

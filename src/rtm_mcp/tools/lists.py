@@ -7,8 +7,8 @@ from fastmcp import Context
 from ..response_builder import (
     build_response,
     format_list,
-    get_transaction_id,
     parse_lists_response,
+    record_and_build_response,
 )
 
 
@@ -84,14 +84,14 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
 
         # Parse the created list
         lst = result.get("list", {})
-        transaction_id = get_transaction_id(result)
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "list": format_list(lst),
                 "message": f"Created list: {name}",
             },
-            transaction_id=transaction_id,
+            tool_name="add_list",
         )
 
     @mcp.tool()
@@ -132,12 +132,13 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
 
         lst = result.get("list", {})
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "list": format_list(lst),
                 "message": f"Renamed '{list_name}' to '{new_name}'",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="rename_list",
         )
 
     @mcp.tool()
@@ -177,9 +178,10 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
             list_id=list_id,
         )
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={"message": f"Deleted list: {list_name}"},
-            transaction_id=get_transaction_id(result),
+            tool_name="delete_list",
         )
 
     @mcp.tool()
@@ -217,12 +219,13 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
 
         lst = result.get("list", {})
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "list": format_list(lst),
                 "message": f"Archived list: {list_name}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="archive_list",
         )
 
     @mcp.tool()
@@ -261,12 +264,13 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
 
         lst = result.get("list", {})
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "list": format_list(lst),
                 "message": f"Unarchived list: {list_name}",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="unarchive_list",
         )
 
     @mcp.tool()

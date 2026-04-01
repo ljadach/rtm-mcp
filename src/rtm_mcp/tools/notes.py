@@ -6,8 +6,8 @@ from fastmcp import Context
 
 from ..response_builder import (
     build_response,
-    get_transaction_id,
     parse_tasks_response,
+    record_and_build_response,
 )
 
 
@@ -59,7 +59,8 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
 
         note = result.get("note", {})
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "note": {
                     "id": note.get("id"),
@@ -69,7 +70,7 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                 },
                 "message": "Note added",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="add_note",
         )
 
     @mcp.tool()
@@ -115,7 +116,8 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
 
         note = result.get("note", {})
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={
                 "note": {
                     "id": note.get("id"),
@@ -125,7 +127,7 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                 },
                 "message": "Note updated",
             },
-            transaction_id=get_transaction_id(result),
+            tool_name="edit_note",
         )
 
     @mcp.tool()
@@ -162,9 +164,10 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
             **ids,
         )
 
-        return build_response(
+        return record_and_build_response(
+            client, result,
             data={"message": "Note deleted"},
-            transaction_id=get_transaction_id(result),
+            tool_name="delete_note",
         )
 
     @mcp.tool()

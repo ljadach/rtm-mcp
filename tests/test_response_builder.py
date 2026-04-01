@@ -1,12 +1,16 @@
 """Tests for response builder."""
 
+from unittest.mock import MagicMock, PropertyMock
+
 from rtm_mcp.response_builder import (
     build_response,
     format_list,
     format_task,
+    get_transaction_info,
     parse_lists_response,
     parse_tasks_response,
     priority_to_code,
+    record_and_build_response,
 )
 
 
@@ -40,6 +44,102 @@ class TestBuildResponse:
         )
 
         assert result["metadata"]["transaction_id"] == "tx123"
+
+    def test_with_transaction_undoable(self) -> None:
+        """Test response with transaction_undoable flag."""
+        result = build_response(
+            data={"key": "value"},
+            transaction_id="tx123",
+            transaction_undoable=True,
+        )
+
+        assert result["metadata"]["transaction_undoable"] is True
+
+    def test_with_timeline_id(self) -> None:
+        """Test response with timeline_id."""
+        result = build_response(
+            data={"key": "value"},
+            transaction_id="tx123",
+            timeline_id="tl456",
+        )
+
+        assert result["metadata"]["timeline_id"] == "tl456"
+
+    def test_undoable_false_not_included_without_transaction(self) -> None:
+        """Test that transaction_undoable None is not included."""
+        result = build_response(data={"key": "value"})
+
+        assert "transaction_undoable" not in result["metadata"]
+        assert "timeline_id" not in result["metadata"]
+
+
+class TestGetTransactionInfo:
+    """Test transaction info extraction."""
+
+    def test_with_undoable_transaction(self) -> None:
+        result = {"transaction": {"id": "tx1", "undoable": "1"}}
+        tx_id, undoable = get_transaction_info(result)
+        assert tx_id == "tx1"
+        assert undoable is True
+
+    def test_with_non_undoable_transaction(self) -> None:
+        result = {"transaction": {"id": "tx2", "undoable": "0"}}
+        tx_id, undoable = get_transaction_info(result)
+        assert tx_id == "tx2"
+        assert undoable is False
+
+    def test_with_no_transaction(self) -> None:
+        result = {"stat": "ok"}
+        tx_id, undoable = get_transaction_info(result)
+        assert tx_id is None
+        assert undoable is False
+
+    def test_with_empty_transaction(self) -> None:
+        result = {"transaction": {}}
+        tx_id, undoable = get_transaction_info(result)
+        assert tx_id is None
+        assert undoable is False
+
+
+class TestRecordAndBuildResponse:
+    """Test the combined record + build helper."""
+
+    def test_records_and_builds(self) -> None:
+        client = MagicMock()
+        type(client).timeline_id = PropertyMock(return_value="tl100")
+
+        result = {"transaction": {"id": "tx1", "undoable": "1"}}
+        data = {"message": "Task added"}
+
+        response = record_and_build_response(client, result, data, "add_task")
+
+        client.record_transaction.assert_called_once_with("tx1", "add_task", True, "Task added")
+        assert response["metadata"]["transaction_id"] == "tx1"
+        assert response["metadata"]["transaction_undoable"] is True
+        assert response["metadata"]["timeline_id"] == "tl100"
+        assert response["data"]["message"] == "Task added"
+
+    def test_no_transaction_in_result(self) -> None:
+        client = MagicMock()
+
+        result = {"stat": "ok"}
+        data = {"message": "Done"}
+
+        response = record_and_build_response(client, result, data, "some_tool")
+
+        client.record_transaction.assert_not_called()
+        assert "transaction_id" not in response["metadata"]
+
+    def test_uses_tool_name_as_fallback_summary(self) -> None:
+        client = MagicMock()
+        type(client).timeline_id = PropertyMock(return_value="tl1")
+
+        result = {"transaction": {"id": "tx1", "undoable": "1"}}
+        data = {"result": "ok"}  # no "message" key
+
+        record_and_build_response(client, result, data, "custom_tool")
+
+        client.record_transaction.assert_called_once_with("tx1", "custom_tool", True, "custom_tool")
 
 
 class TestPriorityConversion:

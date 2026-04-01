@@ -1,7 +1,7 @@
 """Tests for task MCP tools via mocked RTM client."""
 
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
@@ -94,6 +94,10 @@ def mock_client():
     """Create a mock RTMClient whose .call() can be configured per-test."""
     client = AsyncMock()
     client.call = AsyncMock()
+    # Sync methods must not be AsyncMock to avoid coroutine warnings
+    client.record_transaction = MagicMock()
+    client.mark_undone = MagicMock()
+    type(client).timeline_id = PropertyMock(return_value="tl_test")
     return client
 
 

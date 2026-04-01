@@ -256,6 +256,8 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
                 transaction_id=transaction_id,
             )
 
+            client.mark_undone(transaction_id)
+
             return build_response(
                 data={
                     "status": "success",
@@ -271,6 +273,110 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
                     "transaction_id": transaction_id,
                 },
             )
+
+    @mcp.tool()
+    async def batch_undo(
+        ctx: Context,
+        transaction_ids: list[str],
+    ) -> dict[str, Any]:
+        """Undo multiple write operations in reverse chronological order. All
+        transaction_ids must belong to the current session's timeline. Processing
+        stops on the first failure; already-undone transactions are skipped silently.
+
+        Use get_timeline_info to see which transactions are available for undo.
+
+        Args:
+            transaction_ids: List of transaction_ids to undo (from response metadata
+                or get_timeline_info).
+
+        Returns:
+            {"undone": [...], "skipped": [...], "failed": {...} | null,
+            "timeline_id": "..."}.
+        """
+        from ..client import RTMClient
+
+        client: RTMClient = await get_client()
+
+        # Validate all IDs exist in the transaction log
+        unknown = [tid for tid in transaction_ids if client.get_transaction(tid) is None]
+        if unknown:
+            return build_response(
+                data={
+                    "error": f"Unknown transaction IDs (not in current session): {unknown}. Use get_timeline_info to see valid transaction IDs.",
+                },
+            )
+
+        # Sort by log order descending (most recent first)
+        all_transactions = client.get_all_transactions()
+        log_order = {entry.transaction_id: i for i, entry in enumerate(all_transactions)}
+        sorted_ids = sorted(transaction_ids, key=lambda tid: log_order[tid], reverse=True)
+
+        undone: list[str] = []
+        skipped: list[str] = []
+        failed: dict[str, str] | None = None
+
+        for tid in sorted_ids:
+            entry = client.get_transaction(tid)
+            if entry and entry.undone:
+                skipped.append(tid)
+                continue
+
+            try:
+                await client.call(
+                    "rtm.transactions.undo",
+                    require_timeline=True,
+                    transaction_id=tid,
+                )
+                client.mark_undone(tid)
+                undone.append(tid)
+            except Exception as e:
+                failed = {"transaction_id": tid, "error": str(e)}
+                break
+
+        return build_response(
+            data={
+                "undone": undone,
+                "skipped": skipped,
+                "failed": failed,
+                "timeline_id": client.timeline_id,
+            },
+        )
+
+    @mcp.tool()
+    async def get_timeline_info(ctx: Context) -> dict[str, Any]:
+        """Get information about the current session's timeline and transaction
+        history. Use this to review what write operations have been performed and
+        which can be undone. If no writes have been performed yet, timeline_id
+        will be null.
+
+        Returns:
+            {"timeline_id": "..." | null, "created_at": "..." | null,
+            "transaction_count": N, "transactions": [{transaction_id, method,
+            undoable, undone, summary}]}.
+        """
+        from ..client import RTMClient
+
+        client: RTMClient = await get_client()
+
+        transactions = client.get_all_transactions()
+
+        return build_response(
+            data={
+                "timeline_id": client.timeline_id,
+                "created_at": client.timeline_created_at,
+                "transaction_count": len(transactions),
+                "transactions": [
+                    {
+                        "transaction_id": entry.transaction_id,
+                        "method": entry.method,
+                        "undoable": entry.undoable,
+                        "undone": entry.undone,
+                        "summary": entry.summary,
+                    }
+                    for entry in transactions
+                ],
+            },
+        )
 
     @mcp.tool()
     async def get_contacts(ctx: Context) -> dict[str, Any]:
