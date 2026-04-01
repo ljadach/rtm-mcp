@@ -59,11 +59,29 @@ ERROR_CODE_MAP = {
     4050: RTMValidationError,  # Invalid parent_task_id
     4060: RTMValidationError,  # Sub-tasks nested too deep (max 3 levels)
     4070: RTMValidationError,  # Repeating task cannot be parent/child of repeating task
+    4080: RTMValidationError,  # Due date must be after start date
     4090: RTMValidationError,  # Task cannot be its own parent
+}
+
+# Recovery hints appended to RTM error messages so agents can self-correct.
+ERROR_GUIDANCE: dict[int, str] = {
+    98: "Re-run rtm-setup to get a fresh auth token.",
+    99: "The token needs 'delete' permission. Re-run rtm-setup.",
+    101: "Check RTM_API_KEY env var or ~/.config/rtm-mcp/config.json.",
+    340: "Call get_lists to see available list names.",
+    341: "Call list_tasks to find the correct task name or IDs.",
+    4040: "Subtask features require an RTM Pro account.",
+    4050: "Call list_tasks to verify the parent task ID exists.",
+    4060: "RTM allows max 3 nesting levels. Promote an intermediate task first.",
+    4070: "A repeating task cannot be a parent or child of another repeating task.",
+    4080: "Due date must be after start date (or vice versa). Check both dates.",
+    4090: "A task cannot be its own parent. Use a different parent_task_id.",
 }
 
 
 def raise_for_error(code: int, message: str) -> None:
     """Raise appropriate exception based on RTM error code."""
     error_class = ERROR_CODE_MAP.get(code, RTMError)
-    raise error_class(message, code)
+    guidance = ERROR_GUIDANCE.get(code)
+    full_message = f"{message} — {guidance}" if guidance else message
+    raise error_class(full_message, code)

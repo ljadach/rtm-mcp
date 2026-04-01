@@ -21,14 +21,16 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         include_archived: bool = False,
         include_smart: bool = True,
     ) -> dict[str, Any]:
-        """Get all RTM lists.
+        """Retrieve all RTM lists. Returns both regular and smart lists by default,
+        sorted by position. Use this to find list names needed by move_task, add_task,
+        and other list-based operations. Archived lists are hidden by default.
 
         Args:
-            include_archived: Include archived lists (default: false)
-            include_smart: Include smart lists (default: true)
+            include_archived: Include archived lists (default: false).
+            include_smart: Include smart lists — saved search filters (default: true).
 
         Returns:
-            List of all lists with metadata
+            {"lists": [{id, name, smart, locked, archived, position}], "count": N}.
         """
         from ..client import RTMClient
 
@@ -59,14 +61,16 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         name: str,
         filter: str | None = None,
     ) -> dict[str, Any]:
-        """Create a new list.
+        """Create a new list. Optionally provide a filter string to create a smart list
+        (a saved search). Smart lists are read-only — tasks cannot be added directly.
 
         Args:
-            name: Name for the new list
-            filter: Optional RTM filter to make this a smart list
+            name: Name for the new list.
+            filter: RTM filter string to make this a smart list (e.g., "priority:1 AND
+                dueBefore:tomorrow"). Omit for a regular list.
 
         Returns:
-            Created list details with transaction ID
+            {"list": {...}, "message": "Created list: ..."} with transaction_id.
         """
         from ..client import RTMClient
 
@@ -96,14 +100,11 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         list_name: str,
         new_name: str,
     ) -> dict[str, Any]:
-        """Rename a list.
-
-        Args:
-            list_name: Current name of the list
-            new_name: New name for the list
+        """Rename a list. Locked system lists (e.g., Inbox, Sent) cannot be renamed.
+        Use get_lists to see available list names.
 
         Returns:
-            Updated list details
+            {"list": {...}, "message": "Renamed '...' to '...'"} with transaction_id.
         """
         from ..client import RTMClient
 
@@ -120,7 +121,7 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
                 break
 
         if not list_id:
-            return build_response(data={"error": f"List not found: {list_name}"})
+            return build_response(data={"error": f"List '{list_name}' not found. Use get_lists to see available list names."})
 
         result = await client.call(
             "rtm.lists.setName",
@@ -144,15 +145,12 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         ctx: Context,
         list_name: str,
     ) -> dict[str, Any]:
-        """Delete a list.
-
-        Note: Lists with tasks cannot be deleted. Move or delete tasks first.
-
-        Args:
-            list_name: Name of the list to delete
+        """Delete a list. Locked system lists (e.g., Inbox, Sent) cannot be deleted.
+        Tasks in the list should be moved or deleted first. Use get_lists to see
+        available list names.
 
         Returns:
-            Deletion confirmation with transaction ID
+            {"message": "Deleted list: ..."} with transaction_id for undo.
         """
         from ..client import RTMClient
 
@@ -166,12 +164,12 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         for lst in lists:
             if lst["name"].lower() == list_name.lower():
                 if lst["locked"]:
-                    return build_response(data={"error": f"Cannot delete locked list: {list_name}"})
+                    return build_response(data={"error": f"Cannot delete '{list_name}' — it is a locked system list (e.g. Inbox, Sent)."})
                 list_id = lst["id"]
                 break
 
         if not list_id:
-            return build_response(data={"error": f"List not found: {list_name}"})
+            return build_response(data={"error": f"List '{list_name}' not found. Use get_lists to see available list names."})
 
         result = await client.call(
             "rtm.lists.delete",
@@ -189,13 +187,11 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         ctx: Context,
         list_name: str,
     ) -> dict[str, Any]:
-        """Archive a list.
-
-        Args:
-            list_name: Name of the list to archive
+        """Archive a list. Archived lists are hidden from default views but their
+        tasks remain accessible via filters. Use unarchive_list to restore.
 
         Returns:
-            Updated list details
+            {"list": {...}, "message": "Archived list: ..."} with transaction_id.
         """
         from ..client import RTMClient
 
@@ -211,7 +207,7 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
                 break
 
         if not list_id:
-            return build_response(data={"error": f"List not found: {list_name}"})
+            return build_response(data={"error": f"List '{list_name}' not found. Use get_lists to see available list names."})
 
         result = await client.call(
             "rtm.lists.archive",
@@ -234,13 +230,11 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         ctx: Context,
         list_name: str,
     ) -> dict[str, Any]:
-        """Unarchive a list.
-
-        Args:
-            list_name: Name of the list to unarchive
+        """Restore an archived list back to active. Use get_lists(include_archived=True)
+        to find archived list names.
 
         Returns:
-            Updated list details
+            {"list": {...}, "message": "Unarchived list: ..."} with transaction_id.
         """
         from ..client import RTMClient
 
@@ -257,7 +251,7 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
                 break
 
         if not list_id:
-            return build_response(data={"error": f"List not found: {list_name}"})
+            return build_response(data={"error": f"List '{list_name}' not found. Use get_lists to see available list names."})
 
         result = await client.call(
             "rtm.lists.unarchive",
@@ -280,13 +274,11 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
         ctx: Context,
         list_name: str,
     ) -> dict[str, Any]:
-        """Set the default list for new tasks.
-
-        Args:
-            list_name: Name of the list to set as default
+        """Set the default list for new tasks. When add_task is called without a
+        list_name, tasks go to this list. Use get_lists to find available list names.
 
         Returns:
-            Confirmation message
+            {"message": "Default list set to: ..."}.
         """
         from ..client import RTMClient
 
@@ -302,7 +294,7 @@ def register_list_tools(mcp: Any, get_client: Any) -> None:
                 break
 
         if not list_id:
-            return build_response(data={"error": f"List not found: {list_name}"})
+            return build_response(data={"error": f"List '{list_name}' not found. Use get_lists to see available list names."})
 
         await client.call(
             "rtm.lists.setDefaultList",

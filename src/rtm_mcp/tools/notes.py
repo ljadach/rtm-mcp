@@ -24,18 +24,18 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Add a note to a task.
+        """Add a text note to a task. Tasks can have multiple notes. Use get_task_notes
+        to see existing notes on a task.
 
         Args:
-            note_text: The note content
-            note_title: Optional title for the note
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            note_text: The note body content.
+            note_title: Optional title for the note (appears as a heading).
+            task_name: Task name to search for (fuzzy match), or provide all three IDs.
+            task_id, taskseries_id, list_id: Task IDs from list_tasks output.
 
         Returns:
-            Created note details with transaction ID
+            {"note": {id, title, body, created}, "message": "Note added"} with
+            transaction_id for undo.
         """
         from ..client import RTMClient
 
@@ -83,19 +83,19 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Edit an existing note.
+        """Edit an existing note's content and/or title. Get the note_id from
+        get_task_notes. Requires all three task IDs or a task_name.
 
         Args:
-            note_id: ID of the note to edit
-            note_text: New note content
-            note_title: New title (optional)
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            note_id: ID of the note to edit (from get_task_notes).
+            note_text: New body content (replaces existing).
+            note_title: New title (optional, empty string to clear).
+            task_name: Task name to search for, or provide all three IDs.
+            task_id, taskseries_id, list_id: Task IDs from list_tasks output.
 
         Returns:
-            Updated note details
+            {"note": {id, title, body, modified}, "message": "Note updated"} with
+            transaction_id.
         """
         from ..client import RTMClient
 
@@ -137,17 +137,16 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Delete a note from a task.
+        """Delete a note from a task. Get the note_id from get_task_notes. The
+        deletion can be reversed with undo using the returned transaction_id.
 
         Args:
-            note_id: ID of the note to delete
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            note_id: ID of the note to delete (from get_task_notes).
+            task_name: Task name to search for, or provide all three IDs.
+            task_id, taskseries_id, list_id: Task IDs from list_tasks output.
 
         Returns:
-            Deletion confirmation with transaction ID
+            {"message": "Note deleted"} with transaction_id for undo.
         """
         from ..client import RTMClient
 
@@ -176,16 +175,15 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Get all notes for a task.
+        """Retrieve all notes attached to a task. Use this to find note IDs needed
+        by edit_note and delete_note. Use list_tasks with filter "hasNotes:true" to
+        find tasks that have notes.
 
-        Args:
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            List of notes for the task
+            {"task_name": "...", "notes": [{id, title, body, created, modified}],
+            "count": N}.
         """
         from ..client import RTMClient
 
@@ -204,11 +202,11 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                     break
 
             if not task:
-                return build_response(data={"error": f"Task not found: {task_name}"})
+                return build_response(data={"error": f"Task '{task_name}' not found. Use list_tasks to find the correct name or IDs."})
         else:
             if not all([task_id, taskseries_id, list_id]):
                 return build_response(
-                    data={"error": "Must provide task_name or all three IDs"},
+                    data={"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."},
                 )
             # Fetch the specific task
             result = await client.call("rtm.tasks.getList", list_id=list_id)
@@ -220,7 +218,7 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                     break
 
             if not task:
-                return build_response(data={"error": "Task not found"})
+                return build_response(data={"error": "Task not found with provided IDs. Use list_tasks to verify task_id, taskseries_id, and list_id."})
 
         notes = task.get("notes", [])
         if isinstance(notes, dict):
@@ -277,7 +275,7 @@ async def _resolve_task_ids(
     if task_name and not task_id:
         task = await _find_task(client, task_name)
         if not task:
-            return {"error": f"Task not found: {task_name}"}
+            return {"error": f"Task not found: '{task_name}'. Use list_tasks to search by filter or check spelling."}
         return {
             "task_id": task["id"],
             "taskseries_id": task["taskseries_id"],
@@ -285,7 +283,7 @@ async def _resolve_task_ids(
         }
 
     if not all([task_id, taskseries_id, list_id]):
-        return {"error": "Must provide task_name or all three IDs"}
+        return {"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."}
 
     return {
         "task_id": task_id,

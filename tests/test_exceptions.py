@@ -60,7 +60,7 @@ class TestErrorCodeMapCompleteness:
     """Verify ERROR_CODE_MAP contains expected entries."""
 
     def test_all_subtask_codes_mapped(self) -> None:
-        subtask_codes = {4040, 4050, 4060, 4070, 4090}
+        subtask_codes = {4040, 4050, 4060, 4070, 4080, 4090}
         assert subtask_codes.issubset(ERROR_CODE_MAP.keys())
 
     def test_all_values_are_rtm_error_subclasses(self) -> None:

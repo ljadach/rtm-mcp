@@ -12,10 +12,12 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def test_connection(ctx: Context) -> dict[str, Any]:
-        """Test connection to RTM API.
+        """Test connectivity to the RTM API. Use this to diagnose connection issues
+        before attempting other operations. Returns response time in milliseconds.
 
         Returns:
-            Connection status and response time
+            {"status": "connected", "response_time_ms": N} on success, or
+            {"status": "error", "error": "..."} on failure.
         """
         import time
 
@@ -47,10 +49,12 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def check_auth(ctx: Context) -> dict[str, Any]:
-        """Check if authentication token is valid.
+        """Verify that the stored auth token is valid and check permission level.
+        Use this to confirm authentication before performing write operations.
 
         Returns:
-            Auth status and user info
+            {"status": "authenticated", "user": {id, username, fullname},
+            "permissions": "delete"} on success, or {"status": "not_authenticated"}.
         """
         from ..client import RTMClient
 
@@ -82,10 +86,12 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def get_tags(ctx: Context) -> dict[str, Any]:
-        """Get all tags in use.
+        """Retrieve all tags used across your tasks, sorted alphabetically. Use this to
+        discover existing tags before adding them to tasks, or to check tag names for
+        use in list_tasks filters (e.g., filter="tag:work").
 
         Returns:
-            List of tags with usage counts
+            {"tags": [{name}], "count": N}.
         """
         from ..client import RTMClient
 
@@ -117,10 +123,11 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def get_locations(ctx: Context) -> dict[str, Any]:
-        """Get all saved locations.
+        """Retrieve all saved locations. Locations can be assigned to tasks using
+        the @location syntax in add_task, or filtered with list_tasks(filter="location:name").
 
         Returns:
-            List of locations
+            {"locations": [{id, name, latitude, longitude, zoom, address}], "count": N}.
         """
         from ..client import RTMClient
 
@@ -152,10 +159,13 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def get_settings(ctx: Context) -> dict[str, Any]:
-        """Get user settings.
+        """Retrieve user account settings including timezone, date/time format
+        preferences, default list, and language. Useful for understanding how dates
+        and times will be interpreted.
 
         Returns:
-            User preferences and settings
+            {"timezone": "...", "date_format": "European/American", "time_format":
+            "12-hour/24-hour", "default_list_id": "...", "language": "..."}.
         """
         from ..client import RTMClient
 
@@ -186,14 +196,17 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
         text: str,
         timezone: str | None = None,
     ) -> dict[str, Any]:
-        """Parse a natural language time string.
+        """Parse a natural language time/date string into an ISO 8601 timestamp using
+        RTM's parser. Useful for previewing how RTM will interpret date expressions
+        before using them in set_task_due_date or set_task_start_date.
 
         Args:
-            text: Time to parse (e.g., "tomorrow", "next friday", "in 2 hours")
-            timezone: Optional timezone (e.g., "America/New_York")
+            text: Time expression to parse (e.g., "tomorrow", "next friday", "in 2 hours",
+                "dec 25", "3pm").
+            timezone: IANA timezone (e.g., "America/New_York"). Defaults to UTC.
 
         Returns:
-            Parsed time in various formats
+            {"input": "...", "parsed": "2026-04-02T00:00:00Z", "precision": "date"|"time"}.
         """
         from ..client import RTMClient
 
@@ -220,15 +233,17 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
         ctx: Context,
         transaction_id: str,
     ) -> dict[str, Any]:
-        """Undo a previous operation.
-
-        Use the transaction_id returned from write operations.
+        """Undo a previous write operation using its transaction_id. Most write tools
+        return a transaction_id in their metadata. Not all operations are undoable —
+        check the "undoable" field in the original response. Must be called within
+        the same session (timelines expire).
 
         Args:
-            transaction_id: Transaction ID from previous operation
+            transaction_id: The transaction_id from the operation's response metadata.
 
         Returns:
-            Undo confirmation
+            {"status": "success", "message": "Operation undone"} or
+            {"status": "error", "error": "..."}.
         """
         from ..client import RTMClient
 
@@ -259,10 +274,12 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def get_contacts(ctx: Context) -> dict[str, Any]:
-        """Get contacts for task sharing.
+        """Retrieve RTM contacts for task sharing. Contacts are users you can share
+        tasks with via the RTM sharing feature. Use list_tasks with filter
+        "isShared:true" to find shared tasks.
 
         Returns:
-            List of contacts
+            {"contacts": [{id, fullname, username}], "count": N}.
         """
         from ..client import RTMClient
 
@@ -291,10 +308,11 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
     @mcp.tool()
     async def get_groups(ctx: Context) -> dict[str, Any]:
-        """Get contact groups.
+        """Retrieve contact groups with member counts. Groups organize contacts for
+        batch task sharing.
 
         Returns:
-            List of groups with member counts
+            {"groups": [{id, name, member_count}], "count": N}.
         """
         from ..client import RTMClient
 

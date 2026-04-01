@@ -742,7 +742,7 @@ class TestMoveTaskPriority:
             FakeContext(), direction="sideways", task_name="Task",
         )
         assert "error" in result["data"]
-        assert "Invalid direction" in result["data"]["error"]
+        assert "direction" in result["data"]["error"]
 
 
 # ---------------------------------------------------------------------------

@@ -46,24 +46,45 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         include_completed: bool = False,
         parent_task_id: str | None = None,
     ) -> dict[str, Any]:
-        """List tasks with optional filtering.
+        """Search and retrieve tasks from Remember The Milk. Use this tool to find tasks
+        by due date, priority, tag, list, or any combination of RTM's advanced search
+        operators. Returns each task's full metadata including IDs needed by other tools.
 
         Args:
-            filter: RTM filter string (e.g., "dueBefore:tomorrow", "tag:work", "priority:1")
-            list_name: Filter to a specific list name
-            include_completed: Include completed tasks (default: false)
-            parent_task_id: Return only subtasks of this parent task ID
+            filter: RTM advanced search string. Combine operators with AND, OR, NOT,
+                and parentheses. Common operators:
+                - priority:1 / priority:2 / priority:3 / priority:none
+                - due:today / dueBefore:tomorrow / dueAfter:sunday / dueWithin:"1 week of today"
+                - tag:work / tagContains:project / isTagged:true
+                - list:Work / list:"Bob's List" (quote names with spaces)
+                - status:completed / status:incomplete
+                - name:phone (name contains)
+                - start:today / startBefore:today / startAfter:monday
+                - isRepeating:true / isSubtask:true / hasSubtasks:true
+                - noteContains:keyword / hasNotes:true
+                - timeEstimate:"> 1 hour" / hasTimeEstimate:true
+                - postponed:"> 3" / isShared:true
+                - completed:today / completedWithin:"1 week of today"
+                Example: "priority:1 AND (tag:work OR tag:urgent) AND dueBefore:tomorrow"
+            list_name: Filter to a specific list by name (case-insensitive). For smart
+                lists, the saved filter is applied automatically.
+            include_completed: Include completed tasks in results (default: false).
+            parent_task_id: Return only direct subtasks of this parent task ID. Useful
+                for exploring a task's subtask hierarchy.
 
         Returns:
-            List of tasks with metadata. subtask_count on each task reflects the
-            number of children present in the current result set.
+            {"tasks": [...], "count": N} with optional analysis (priority breakdown,
+            overdue count, estimate totals). Each task includes id, taskseries_id,
+            list_id (needed by write tools), name, due, priority, tags, parent_task_id,
+            and subtask_count (number of children in the current result set).
 
         Examples:
             - list_tasks() → all incomplete tasks
-            - list_tasks(filter="dueBefore:tomorrow") → tasks due soon
-            - list_tasks(filter="tag:work AND priority:1") → high priority work tasks
+            - list_tasks(filter="dueBefore:tomorrow AND priority:1") → urgent tasks due soon
+            - list_tasks(filter="tag:work AND NOT tag:done") → work tasks not tagged done
             - list_tasks(list_name="Personal") → tasks in Personal list
             - list_tasks(parent_task_id="1194808991") → subtasks of a specific parent
+            - list_tasks(filter="status:completed", include_completed=True) → completed tasks
         """
         client: RTMClient = await get_client()
 
@@ -138,31 +159,40 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         parent_task_id: str | None = None,
         external_id: str | None = None,
     ) -> dict[str, Any]:
-        """Add a new task, optionally as a subtask of an existing task.
+        """Create a new task in Remember The Milk. Supports Smart Add syntax to set
+        due date, priority, tags, location, estimate, and recurrence inline with the
+        task name. Can also create subtasks under an existing parent task.
 
-        Supports Smart Add syntax when parse=True:
-            - ^date for due date (^tomorrow, ^next friday)
-            - !priority (!1, !2, !3)
-            - #tag for tags (#work, #urgent)
-            - @location
-            - =time estimate (=30min, =1h)
-            - *repeat pattern (*daily, *weekly)
+        Smart Add syntax (when parse=True, the default):
+            ^date     → due date: ^tomorrow, ^next friday, ^dec 25
+            !N        → priority: !1 (high), !2 (medium), !3 (low)
+            #tag      → tag: #work, #urgent (multiple allowed)
+            @location → location: @home, @office
+            =estimate → time estimate: =30min, =2h
+            *repeat   → recurrence: *daily, *every monday, *after 1 week
 
         Args:
-            name: Task name (with optional Smart Add syntax)
-            list_name: List to add to (uses default list if not specified)
-            parse: Parse Smart Add syntax (default: True)
-            parent_task_id: Task ID of the parent to create this as a subtask under
-                (Pro only, max 3 levels; repeating tasks cannot be nested under repeating parents)
-            external_id: External reference ID to link the task to an external system (e.g., Jira ticket ID)
+            name: Task name, optionally including Smart Add tokens.
+                Example: "Call mom ^tomorrow !1 #family =15min"
+            list_name: Target list name (case-insensitive). Defaults to the user's
+                default list (usually Inbox). Cannot add to Smart Lists (read-only).
+                If parent_task_id is set, the parent's list overrides this value.
+            parse: Parse Smart Add syntax in the name (default: True). Set to False
+                to use the literal name string.
+            parent_task_id: Create as a subtask under this parent task ID. Requires
+                RTM Pro. Max 3 nesting levels. Repeating tasks cannot be nested under
+                repeating parents. Get the parent's task ID from list_tasks.
+            external_id: Attach an external reference ID (e.g., "JIRA-1234") for
+                linking the task to an external system.
 
         Returns:
-            Created task details with transaction ID for undo
+            {"task": {...}, "message": "Created task: ..."} with transaction_id in
+            metadata. The task object includes all IDs needed by other tools.
 
         Examples:
             - add_task("Buy groceries")
-            - add_task("Call mom ^tomorrow !1 #family")
-            - add_task("Weekly review *weekly ^monday", list_name="Work")
+            - add_task("Call mom ^tomorrow !1 #family =15min")
+            - add_task("Weekly review *every monday", list_name="Work")
             - add_task("Sub-item", parent_task_id="1194808991")
             - add_task("Fix login bug", external_id="JIRA-1234")
         """
@@ -213,18 +243,16 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Mark a task as complete.
+        """Mark a task as complete. For recurring tasks, this completes the current
+        occurrence and generates the next one. Use undo with the returned
+        transaction_id to reverse.
 
-        Provide either task_name (for search) or all three IDs.
-
-        Args:
-            task_name: Task name to search for (fuzzy match)
-            task_id: Specific task ID
-            taskseries_id: Task series ID (required with task_id)
-            list_id: List ID (required with task_id)
+        Identify the task by either:
+        - task_name: searches incomplete tasks by name (fuzzy match), or
+        - all three IDs: task_id + taskseries_id + list_id (from list_tasks output).
 
         Returns:
-            Completed task details with transaction ID for undo
+            {"task": {...}, "message": "Completed: ..."} with transaction_id for undo.
         """
         client: RTMClient = await get_client()
 
@@ -233,7 +261,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             task = await _find_task(client, task_name)
             if not task:
                 return build_response(
-                    data={"error": f"Task not found: {task_name}"},
+                    data={"error": f"Task not found: '{task_name}'. Use list_tasks to search by filter or check spelling."},
                 )
             task_id = task["id"]
             taskseries_id = task["taskseries_id"]
@@ -241,7 +269,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         if not all([task_id, taskseries_id, list_id]):
             return build_response(
-                data={"error": "Must provide task_name or all three IDs"},
+                data={"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."},
             )
 
         result = await client.call(
@@ -273,16 +301,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Reopen a completed task.
+        """Reopen a previously completed task, setting it back to incomplete. Use this
+        instead of undo when the original completion is no longer the most recent action.
 
-        Args:
-            task_name: Task name to search for (searches completed tasks)
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Searches completed tasks when using task_name. Identify the task by either
+        task_name or all three IDs (task_id + taskseries_id + list_id from list_tasks).
 
         Returns:
-            Reopened task details
+            {"task": {...}, "message": "Reopened: ..."} with transaction_id for undo.
         """
         client: RTMClient = await get_client()
 
@@ -290,11 +316,11 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             task = await _find_task(client, task_name, include_completed=True)
             if not task:
                 return build_response(
-                    data={"error": f"Completed task not found: {task_name}"},
+                    data={"error": f"No completed task found matching '{task_name}'. Use list_tasks(include_completed=True) to find it."},
                 )
             if not task.get("completed"):
                 return build_response(
-                    data={"error": f"Task is not completed: {task_name}"},
+                    data={"error": f"'{task_name}' is not completed — use complete_task first, or check task status with list_tasks."},
                 )
             task_id = task["id"]
             taskseries_id = task["taskseries_id"]
@@ -302,7 +328,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         if not all([task_id, taskseries_id, list_id]):
             return build_response(
-                data={"error": "Must provide task_name or all three IDs"},
+                data={"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."},
             )
 
         result = await client.call(
@@ -333,16 +359,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Delete a task.
+        """Permanently delete a task. If you only want to mark it done, use complete_task
+        instead. The deletion can be reversed with undo using the returned transaction_id.
 
-        Args:
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs (task_id +
+        taskseries_id + list_id from list_tasks).
 
         Returns:
-            Deletion confirmation with transaction ID for undo
+            {"message": "Deleted: ..."} with transaction_id for undo.
         """
         client: RTMClient = await get_client()
 
@@ -350,7 +374,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             task = await _find_task(client, task_name)
             if not task:
                 return build_response(
-                    data={"error": f"Task not found: {task_name}"},
+                    data={"error": f"Task not found: '{task_name}'. Use list_tasks to search by filter or check spelling."},
                 )
             task_id = task["id"]
             taskseries_id = task["taskseries_id"]
@@ -361,7 +385,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
 
         if not all([task_id, taskseries_id, list_id]):
             return build_response(
-                data={"error": "Must provide task_name or all three IDs"},
+                data={"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."},
             )
 
         result = await client.call(
@@ -386,17 +410,13 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Rename a task.
+        """Rename a task. The new name replaces the existing name entirely.
 
-        Args:
-            new_name: New name for the task
-            task_name: Current task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name (current name, fuzzy match) or all
+        three IDs (task_id + taskseries_id + list_id from list_tasks).
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Renamed to: ..."} with transaction_id for undo.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -431,18 +451,15 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set or change task due date.
+        """Set or change a task's due date. Accepts natural language dates like
+        "tomorrow", "next friday", "dec 25", or ISO format "2026-12-25". Pass an
+        empty string to clear the due date. The due date must be on or after any
+        existing start date (error 4080).
 
-        Args:
-            due: Due date (natural language: "tomorrow", "next friday", "2024-12-25")
-                 Use empty string to clear due date.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Due date set"} with transaction_id for undo.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -479,17 +496,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set task priority.
+        """Set a task's priority level. Values: 1 (high), 2 (medium), 3 (low),
+        or 0/none to clear priority. Use move_task_priority to shift one level
+        up or down instead of setting an absolute value.
 
-        Args:
-            priority: Priority level (1/high, 2/medium, 3/low, 0/N/none)
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Priority set to: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -526,23 +540,18 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Move a task's priority up or down by one level.
+        """Shift a task's priority by one level. "up" means higher priority (e.g.,
+        low → medium → high). "down" means lower (high → medium → low → none).
+        Use set_task_priority to set an absolute level instead.
 
-        Up: none → low → medium → high. Down: high → medium → low → none.
-
-        Args:
-            direction: "up" or "down"
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details with new priority
+            {"task": {...}, "message": "Priority moved up/down"} with transaction_id.
         """
         if direction not in ("up", "down"):
             return build_response(
-                data={"error": f"Invalid direction: {direction}. Must be 'up' or 'down'."},
+                data={"error": "direction must be 'up' (higher priority) or 'down' (lower priority)."},
             )
 
         client: RTMClient = await get_client()
@@ -577,16 +586,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Postpone a task (moves due date by one day).
+        """Postpone a task by one day. Moves the due date forward and increments
+        the postpone counter. If the task has no due date, one is assigned. Use
+        set_task_due_date for arbitrary date changes.
 
-        Args:
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details with new due date
+            {"task": {...}, "message": "Postponed: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -620,17 +627,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Move a task to a different list.
+        """Move a task to a different list. Use get_lists to find available list names.
+        Cannot move tasks to Smart Lists (read-only). The task's current list is
+        determined automatically from its IDs.
 
-        Args:
-            to_list_name: Destination list name
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: Current list ID (from_list_id)
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Moved to: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
 
@@ -646,7 +650,7 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
                 break
 
         if not to_list_id:
-            return build_response(data={"error": f"List not found: {to_list_name}"})
+            return build_response(data={"error": f"List '{to_list_name}' not found. Use get_lists to see available list names."})
 
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
         if "error" in ids:
@@ -682,17 +686,16 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Add tags to a task.
+        """Add one or more tags to a task without removing existing tags. To replace
+        all tags at once, use set_task_tags. To remove specific tags, use remove_task_tags.
 
         Args:
-            tags: Comma-separated tags to add (e.g., "work,urgent")
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            tags: Comma-separated tag names to add (e.g., "work,urgent"). No # prefix needed.
+
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Added tags: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -727,17 +730,16 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Remove tags from a task.
+        """Remove one or more tags from a task. Tags not present on the task are
+        silently ignored. To replace all tags at once, use set_task_tags.
 
         Args:
-            tags: Comma-separated tags to remove
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            tags: Comma-separated tag names to remove (e.g., "work,urgent").
+
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Removed tags: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -772,21 +774,18 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Replace all tags on a task.
-
-        This sets the complete tag list — any existing tags not in the new list
-        will be removed. Use add_task_tags/remove_task_tags for incremental changes.
+        """Replace all tags on a task with a new set. Any existing tags not in the
+        new list are removed. Pass an empty string to clear all tags. For incremental
+        changes, use add_task_tags or remove_task_tags instead.
 
         Args:
-            tags: Comma-separated tags to set (e.g., "work,action,urgent").
-                  Empty string to clear all tags.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            tags: Comma-separated tag names (e.g., "work,review,urgent"). Empty string
+                to remove all tags. Use get_tags to see all existing tags in your account.
+
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details with new tags
+            {"task": {...}, "message": "Tags set to: ..."} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -822,18 +821,19 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set task recurrence pattern.
+        """Set or clear a task's recurrence pattern. Two recurrence types:
+        - "every ..." repeats on a fixed schedule (shares one task series)
+        - "after ..." repeats relative to the completion date (new series each time)
+        Pass an empty string to clear recurrence.
 
         Args:
-            repeat: Recurrence pattern (e.g., "every week", "every 2 days",
-                   "every monday", "after 1 week"). Empty string to clear.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+            repeat: Pattern string, e.g., "every day", "every 2 weeks", "every monday",
+                "every 1st of the month", "after 1 week". Empty string to clear.
+
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Recurrence set/cleared"} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -869,17 +869,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set task start date.
+        """Set or clear a task's start date. The start date must be on or before any
+        existing due date (error 4080). Accepts natural language ("tomorrow", "next
+        monday") or ISO format. Pass an empty string to clear.
 
-        Args:
-            start: Start date (natural language). Empty to clear.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Start date set/cleared"} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -916,18 +913,14 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set task time estimate.
+        """Set or clear a task's time estimate. Accepts natural language durations
+        like "30 minutes", "1 hour", "2 hrs 30 min". Pass an empty string to clear.
+        Use list_tasks with filter "hasTimeEstimate:true" to find tasks with estimates.
 
-        Args:
-            estimate: Time estimate (e.g., "30 minutes", "1 hour", "2 hours 30 minutes").
-                     Empty to clear.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "Estimate set/cleared"} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -963,17 +956,13 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         taskseries_id: str | None = None,
         list_id: str | None = None,
     ) -> dict[str, Any]:
-        """Set task URL.
+        """Attach a URL to a task or clear an existing one. Pass an empty string to
+        remove the URL. Each task can have one URL.
 
-        Args:
-            url: URL to attach to task. Empty to clear.
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details
+            {"task": {...}, "message": "URL set/cleared"} with transaction_id.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -1010,24 +999,24 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
         parent_task_id: str | None = None,
     ) -> dict[str, Any]:
         """Move a task under a parent (making it a subtask) or promote it to top-level.
+        Requires RTM Pro. Max 3 levels of nesting.
 
-        Pro accounts only. Max 3 levels of nesting.
-
-        Note: If the parent is in a different list, the task will be moved to that list.
-        Repeating tasks cannot be parents or children of other repeating tasks.
+        Constraints:
+        - If the parent is in a different list, the task is implicitly moved to that list.
+        - Repeating tasks cannot be parents or children of other repeating tasks.
+        - A task cannot be its own parent.
 
         Args:
-            task_name: Task name to search for
-            task_id: Specific task ID
-            taskseries_id: Task series ID
-            list_id: List ID
-            parent_task_id: New parent's task ID, or omit/None to make top-level
+            parent_task_id: The parent's task ID (from list_tasks). Omit or pass None
+                to promote a subtask back to top-level.
+
+        Identify the task by either task_name or all three IDs.
 
         Returns:
-            Updated task details with transaction ID for undo
+            {"task": {...}, "message": "Moved under parent..."} with transaction_id.
 
         RTM error codes: 4040=Pro required, 4050=invalid parent, 4060=max nesting,
-            4070=repeating task conflict, 4090=self-parenting
+            4070=repeating task conflict, 4090=self-parenting.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
@@ -1105,7 +1094,7 @@ async def _resolve_task_ids(
     if task_name and not task_id:
         task = await _find_task(client, task_name)
         if not task:
-            return {"error": f"Task not found: {task_name}"}
+            return {"error": f"Task not found: '{task_name}'. Use list_tasks to search by filter or check spelling."}
         return {
             "task_id": task["id"],
             "taskseries_id": task["taskseries_id"],
@@ -1113,7 +1102,7 @@ async def _resolve_task_ids(
         }
 
     if not all([task_id, taskseries_id, list_id]):
-        return {"error": "Must provide task_name or all three IDs"}
+        return {"error": "Provide either task_name (for search) or all three: task_id, taskseries_id, and list_id. Get these from list_tasks."}
 
     return {
         "task_id": task_id,
