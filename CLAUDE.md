@@ -94,7 +94,7 @@ ERROR_GUIDANCE: dict[int, str] = {
     340: "Call get_lists to see available list names.",
     341: "Call list_tasks to find the correct task name or IDs.",
     4040: "Subtask features require an RTM Pro account.",
-    # ... 11 codes total
+    # ... 18 codes total
 }
 
 def raise_for_error(code: int, message: str) -> None:

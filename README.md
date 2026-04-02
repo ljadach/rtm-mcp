@@ -199,6 +199,126 @@ RTM_RETRY_DELAY_SUBSEQUENT=5.0 # Seconds before 2nd+ retry
 }
 ```
 
+## Response Format
+
+All tools return a consistent JSON structure:
+
+```json
+{
+  "data": { ... },
+  "metadata": {
+    "fetched_at": "2026-04-02T12:00:00Z"
+  }
+}
+```
+
+Write operations include additional metadata for undo support:
+
+```json
+{
+  "data": { "task": { ... }, "message": "Created task: Buy groceries" },
+  "metadata": {
+    "fetched_at": "2026-04-02T12:00:00Z",
+    "transaction_id": "123456",
+    "transaction_undoable": true,
+    "timeline_id": "987654"
+  }
+}
+```
+
+Task listing includes optional analysis:
+
+```json
+{
+  "data": { "tasks": [ ... ], "count": 5 },
+  "analysis": {
+    "insights": ["3 tasks due today", "2 high-priority tasks"]
+  }
+}
+```
+
+## Error Handling
+
+The server maps RTM API error codes to descriptive exception types and appends recovery guidance so that AI agents can self-correct:
+
+| Code | Type | Meaning | Recovery Guidance |
+|------|------|---------|-------------------|
+| 98 | Auth | Invalid auth token | Re-run `rtm-setup` to get a fresh token |
+| 99 | Auth | Insufficient permissions | Token needs `delete` permission — re-run `rtm-setup` |
+| 101 | Validation | Invalid API key | Check `RTM_API_KEY` env var or config file |
+| 114 | Auth | User not logged in | Re-run `rtm-setup` to authenticate |
+| 340 | Not Found | List not found | Call `get_lists` to see available list names |
+| 341 | Not Found | Task not found | Call `list_tasks` to find the correct task name or IDs |
+
+### Subtask and Hierarchy Errors
+
+| Code | Meaning | Recovery Guidance |
+|------|---------|-------------------|
+| 4040 | Pro account required | Subtask features require RTM Pro |
+| 4050 | Invalid parent task | Call `list_tasks` to verify the parent task ID exists |
+| 4060 | Nested too deep | RTM allows max 3 levels — promote an intermediate task first |
+| 4070 | Repeating task conflict | A repeating task cannot be a parent or child of another repeating task |
+| 4080 | Date constraint | Due date must be after start date (or vice versa) — check both dates |
+| 4090 | Self-parenting | A task cannot be its own parent |
+
+Application-level errors (e.g., task not found by name, missing IDs) return actionable messages suggesting the next tool to call:
+
+```json
+{"error": "Task not found: 'Buy milk'. Use list_tasks to search by filter or check spelling."}
+```
+
+## RTM Pro Requirements
+
+Some features require an RTM Pro subscription:
+
+- **Subtask creation**: `add_task` with `parent_task_id`
+- **Reparenting tasks**: `set_parent_task`
+- **Subtask nesting**: Maximum 3 levels deep
+- **Subtask filtering**: `list_tasks` with `parent_task_id` parameter
+
+All other tools (42 total) work with free RTM accounts.
+
+## Rate Limiting
+
+The server uses a **token bucket** algorithm to stay within RTM's API limits:
+
+| Parameter | Default | Env Var | Description |
+|-----------|---------|---------|-------------|
+| Bucket capacity | 3 | `RTM_BUCKET_CAPACITY` | Max burst size (requests) |
+| Safety margin | 10% | `RTM_SAFETY_MARGIN` | Buffer below RTM's 1 RPS limit |
+| Effective rate | ~0.9 RPS | — | Derived from 1.0 - safety margin |
+| Max 503 retries | 2 | `RTM_MAX_RETRIES` | Retry budget for HTTP 503 |
+| First retry delay | 2s | `RTM_RETRY_DELAY_FIRST` | Backoff before first retry |
+| Subsequent delay | 5s | `RTM_RETRY_DELAY_SUBSEQUENT` | Backoff before 2nd+ retry |
+
+**Burst vs sustained**: You can make up to 3 rapid requests (burst), after which the rate settles to ~0.9 requests/second. HTTP 503 responses trigger automatic retry with escalating backoff.
+
+**Diagnostics**: Use `get_rate_limit_status` to inspect current token availability, request counts, and 503 error history. If `http_503_count_session` is non-zero, increase `RTM_SAFETY_MARGIN` (e.g., from 0.1 to 0.15).
+
+## Troubleshooting
+
+### "RTM not configured"
+
+Run `rtm-setup` or set the `RTM_API_KEY`, `RTM_SHARED_SECRET`, and `RTM_AUTH_TOKEN` environment variables.
+
+### Authentication Errors
+
+RTM tokens don't expire, but can be revoked. If you get auth errors, re-run `rtm-setup` to obtain a fresh token.
+
+### Rate Limit Issues
+
+If you see HTTP 503 errors or slow responses:
+
+1. Run `get_rate_limit_status` to check `http_503_count_session`
+2. If non-zero, increase `RTM_SAFETY_MARGIN` (e.g., `RTM_SAFETY_MARGIN=0.15`)
+3. For batch operations, the server automatically paces requests
+
+### Subtask Errors
+
+- **Error 4040**: Subtask features require an RTM Pro account
+- **Error 4060**: Maximum 3 nesting levels — promote an intermediate task to reduce depth
+- **Error 4070**: Repeating tasks cannot be nested under other repeating tasks
+
 ## Development
 
 ```bash

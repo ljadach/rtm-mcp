@@ -1048,7 +1048,8 @@ def register_task_tools(mcp: Any, get_client: Any) -> None:
             {"task": {...}, "message": "Moved under parent..."} with transaction_id.
 
         RTM error codes: 4040=Pro required, 4050=invalid parent, 4060=max nesting,
-            4070=repeating task conflict, 4090=self-parenting.
+            4070=repeating task conflict, 4080=due date before start date,
+            4090=self-parenting.
         """
         client: RTMClient = await get_client()
         ids = await _resolve_task_ids(client, task_name, task_id, taskseries_id, list_id)
