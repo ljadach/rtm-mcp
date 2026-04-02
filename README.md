@@ -6,10 +6,13 @@ Enables Claude to manage your tasks through natural language conversation.
 
 ## Features
 
-- **Full RTM API Coverage**: 39 tools covering tasks, lists, tags, notes, and more
+- **Full RTM API Coverage**: 42 tools covering tasks, lists, tags, notes, and more
 - **Subtask Hierarchy**: Full parent/child task support with `parent_task_id`, subtask counts, and nesting up to 3 levels
 - **Smart Add Syntax**: Natural language task creation (`"Call mom ^tomorrow !1 #family"`)
-- **Undo Support**: All write operations return transaction IDs for undo
+- **Undo and Batch Undo**: All write operations return transaction IDs; undo one or many operations with `batch_undo`
+- **Timeline Introspection**: Session transaction log with `get_timeline_info` for reviewing write history
+- **Token Bucket Rate Limiting**: Burst to 3 RPS, sustain ~0.9 RPS with configurable safety margin
+- **Automatic 503 Retry**: Escalating backoff (2s → 5s) with configurable retry budget
 - **Async Performance**: Built on httpx with connection pooling
 - **Type Safety**: Full Pydantic models and type hints
 
@@ -87,6 +90,9 @@ Once configured, you can ask Claude to manage your tasks:
 - *"Move the research task under the Q2 Planning parent"*
 - *"Replace all tags on the report task with #review and #urgent"*
 - *"Bump the priority of the deployment task up one level"*
+- *"Undo that last operation"*
+- *"Show me what changes I've made this session"*
+- *"Undo the last 3 operations"*
 
 ## Smart Add Syntax
 
@@ -148,6 +154,11 @@ Tasks support parent/child relationships up to 3 levels deep (RTM Pro required):
 - `archive_list` / `unarchive_list` - Archive management
 - `set_default_list` - Set default list
 
+### Undo and Timeline
+- `undo` - Undo a single write operation
+- `batch_undo` - Undo multiple operations in reverse chronological order
+- `get_timeline_info` - View session timeline and full transaction history
+
 ### Utilities
 - `test_connection` - Test API connectivity
 - `check_auth` - Verify authentication
@@ -157,16 +168,24 @@ Tasks support parent/child relationships up to 3 levels deep (RTM Pro required):
 - `get_contacts` - List contacts for task sharing
 - `get_groups` - List contact groups with member counts
 - `parse_time` - Parse natural language time
-- `undo` - Undo previous operation
+- `get_rate_limit_status` - View rate limiter state and request statistics
 
 ## Configuration
 
 ### Environment Variables
 
 ```bash
+# Required
 RTM_API_KEY=your_api_key
 RTM_SHARED_SECRET=your_shared_secret
 RTM_AUTH_TOKEN=your_token
+
+# Rate limiting (optional, sensible defaults)
+RTM_BUCKET_CAPACITY=3          # Max burst size (tokens)
+RTM_SAFETY_MARGIN=0.1          # 10% below RTM's 1 RPS limit
+RTM_MAX_RETRIES=2              # Retries on HTTP 503
+RTM_RETRY_DELAY_FIRST=2.0      # Seconds before first retry
+RTM_RETRY_DELAY_SUBSEQUENT=5.0 # Seconds before 2nd+ retry
 ```
 
 ### Config File
