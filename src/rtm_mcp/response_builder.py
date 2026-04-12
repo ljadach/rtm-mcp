@@ -35,34 +35,34 @@ def build_response(
     return response
 
 
-def _convert_due_date(due: str, timezone: str | None) -> str:
-    """Convert RTM due date (UTC) to user's timezone.
+def _convert_date(date_str: str, timezone: str | None) -> str:
+    """Convert RTM date (UTC) to user's timezone.
 
     Args:
-        due: Due date string from RTM (ISO 8601 format, typically with Z suffix)
+        date_str: Date string from RTM (ISO 8601 format, typically with Z suffix)
         timezone: User's IANA timezone (e.g., 'Europe/Warsaw')
 
     Returns:
         ISO 8601 date string in user's timezone, or original if conversion fails
     """
     if not timezone:
-        return due
+        return date_str
 
     try:
         from zoneinfo import ZoneInfo
 
         # Parse the UTC date from RTM
-        due_dt = datetime.fromisoformat(due.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
 
         # Convert to user's timezone
         user_tz = ZoneInfo(timezone)
-        due_local = due_dt.astimezone(user_tz)
+        dt_local = dt.astimezone(user_tz)
 
         # Return ISO format in user's timezone
-        return due_local.isoformat()
+        return dt_local.isoformat()
     except Exception:
         # If conversion fails, return original
-        return due
+        return date_str
 
 
 def format_task(
@@ -82,12 +82,19 @@ def format_task(
     due_display = None
     due_raw = task.get("due")
     if due_raw:
-        due_display = _convert_due_date(due_raw, timezone)
+        due_display = _convert_date(due_raw, timezone)
+
+    # Convert start date to user's timezone
+    start_display = None
+    start_raw = task.get("start")
+    if start_raw:
+        start_display = _convert_date(start_raw, timezone)
 
     formatted = {
         "name": task.get("name", ""),
         "priority": _priority_label(task.get("priority", "N")),
         "due": due_display,
+        "start": start_display,
         "completed": task.get("completed") or None,
         "tags": task.get("tags", []),
         "url": task.get("url") or None,
@@ -198,6 +205,7 @@ def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
                     "name": ts.get("name"),
                     "due": t.get("due") or None,
                     "has_due_time": t.get("has_due_time") == "1",
+                    "start": t.get("start") or None,
                     "completed": t.get("completed") or None,
                     "deleted": t.get("deleted") or None,
                     "priority": t.get("priority", "N"),

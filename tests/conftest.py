@@ -35,6 +35,7 @@ def sample_task_response() -> dict:
                         "id": "789",
                         "due": "2024-01-15T00:00:00Z",
                         "has_due_time": "0",
+                        "start": "2024-01-10T00:00:00Z",
                         "completed": "",
                         "deleted": "",
                         "priority": "1",
