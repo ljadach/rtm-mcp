@@ -104,9 +104,11 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
             if isinstance(tag, str):
                 tags.append({"name": tag})
             else:
-                tags.append({
-                    "name": tag.get("name", tag.get("$t", "")),
-                })
+                tags.append(
+                    {
+                        "name": tag.get("name", tag.get("$t", "")),
+                    }
+                )
 
         return build_response(
             data={
@@ -134,14 +136,16 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
         locations = []
         for loc in locations_data:
-            locations.append({
-                "id": loc.get("id"),
-                "name": loc.get("name"),
-                "latitude": float(loc.get("latitude", 0)),
-                "longitude": float(loc.get("longitude", 0)),
-                "zoom": int(loc.get("zoom", 0)) if loc.get("zoom") else None,
-                "address": loc.get("address"),
-            })
+            locations.append(
+                {
+                    "id": loc.get("id"),
+                    "name": loc.get("name"),
+                    "latitude": float(loc.get("latitude", 0)),
+                    "longitude": float(loc.get("longitude", 0)),
+                    "zoom": int(loc.get("zoom", 0)) if loc.get("zoom") else None,
+                    "address": loc.get("address"),
+                }
+            )
 
         return build_response(
             data={
@@ -166,7 +170,9 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
         settings = result.get("settings", {})
 
         # Format settings nicely
-        date_format = "European (DD/MM/YY)" if settings.get("dateformat") == "0" else "American (MM/DD/YY)"
+        date_format = (
+            "European (DD/MM/YY)" if settings.get("dateformat") == "0" else "American (MM/DD/YY)"
+        )
         time_format = "12-hour" if settings.get("timeformat") == "0" else "24-hour"
 
         return build_response(
@@ -276,11 +282,13 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
 
         contacts = []
         for contact in contacts_data:
-            contacts.append({
-                "id": contact.get("id"),
-                "fullname": contact.get("fullname"),
-                "username": contact.get("username"),
-            })
+            contacts.append(
+                {
+                    "id": contact.get("id"),
+                    "fullname": contact.get("fullname"),
+                    "username": contact.get("username"),
+                }
+            )
 
         return build_response(
             data={
@@ -312,11 +320,13 @@ def register_utility_tools(mcp: Any, get_client: Any) -> None:
             if isinstance(contacts, dict):
                 contacts = [contacts]
 
-            groups.append({
-                "id": group.get("id"),
-                "name": group.get("name"),
-                "member_count": len(contacts),
-            })
+            groups.append(
+                {
+                    "id": group.get("id"),
+                    "name": group.get("name"),
+                    "member_count": len(contacts),
+                }
+            )
 
         return build_response(
             data={

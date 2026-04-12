@@ -971,6 +971,7 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
     without_estimate = 0
     tags_used: set[str] = set()
 
+    import contextlib
     from datetime import UTC, datetime
     from zoneinfo import ZoneInfo
 
@@ -978,15 +979,10 @@ def _analyze_tasks(tasks: list[dict[str, Any]], timezone: str | None = None) -> 
     # RTM due dates are relative to the user's timezone
     user_tz = None
     if timezone:
-        try:
+        with contextlib.suppress(Exception):
             user_tz = ZoneInfo(timezone)
-        except Exception:
-            pass
 
-    if user_tz:
-        now = datetime.now(user_tz)
-    else:
-        now = datetime.now(UTC)
+    now = datetime.now(user_tz) if user_tz else datetime.now(UTC)
     today = now.date()
 
     for task in tasks:

@@ -198,27 +198,29 @@ def parse_tasks_response(result: dict[str, Any]) -> list[dict[str, Any]]:
                     notes = [notes]
 
             for t in task_data:
-                tasks.append({
-                    "id": t.get("id"),
-                    "taskseries_id": ts.get("id"),
-                    "list_id": list_id,
-                    "name": ts.get("name"),
-                    "due": t.get("due") or None,
-                    "has_due_time": t.get("has_due_time") == "1",
-                    "start": t.get("start") or None,
-                    "has_start_time": t.get("has_start_time") == "1",
-                    "completed": t.get("completed") or None,
-                    "deleted": t.get("deleted") or None,
-                    "priority": t.get("priority", "N"),
-                    "postponed": int(t.get("postponed", 0)),
-                    "estimate": t.get("estimate") or None,
-                    "tags": tags if tags else [],
-                    "notes": notes,
-                    "url": ts.get("url") or None,
-                    "location_id": ts.get("location_id") or None,
-                    "created": ts.get("created") or None,
-                    "modified": ts.get("modified") or None,
-                })
+                tasks.append(
+                    {
+                        "id": t.get("id"),
+                        "taskseries_id": ts.get("id"),
+                        "list_id": list_id,
+                        "name": ts.get("name"),
+                        "due": t.get("due") or None,
+                        "has_due_time": t.get("has_due_time") == "1",
+                        "start": t.get("start") or None,
+                        "has_start_time": t.get("has_start_time") == "1",
+                        "completed": t.get("completed") or None,
+                        "deleted": t.get("deleted") or None,
+                        "priority": t.get("priority", "N"),
+                        "postponed": int(t.get("postponed", 0)),
+                        "estimate": t.get("estimate") or None,
+                        "tags": tags if tags else [],
+                        "notes": notes,
+                        "url": ts.get("url") or None,
+                        "location_id": ts.get("location_id") or None,
+                        "created": ts.get("created") or None,
+                        "modified": ts.get("modified") or None,
+                    }
+                )
 
     return tasks
 
