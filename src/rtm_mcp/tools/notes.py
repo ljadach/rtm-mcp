@@ -228,13 +228,15 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
 
         formatted_notes = []
         for note in notes:
-            formatted_notes.append({
-                "id": note.get("id"),
-                "title": note.get("title", ""),
-                "body": note.get("$t", note.get("body", "")),
-                "created": note.get("created"),
-                "modified": note.get("modified"),
-            })
+            formatted_notes.append(
+                {
+                    "id": note.get("id"),
+                    "title": note.get("title", ""),
+                    "body": note.get("$t", note.get("body", "")),
+                    "created": note.get("created"),
+                    "modified": note.get("modified"),
+                }
+            )
 
         return build_response(
             data={
