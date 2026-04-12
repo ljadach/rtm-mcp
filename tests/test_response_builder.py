@@ -87,6 +87,53 @@ class TestParseTasksResponse:
         assert task["priority"] == "1"
         assert task["tags"] == ["work", "urgent"]
 
+    def test_parse_task_includes_start_date(self, sample_task_response: dict) -> None:
+        """Test that start date is parsed from task response."""
+        tasks = parse_tasks_response(sample_task_response)
+        task = tasks[0]
+
+        assert task["start"] == "2024-01-10T00:00:00Z"
+
+    def test_parse_task_empty_start_date(self) -> None:
+        """Test that empty start date is parsed as None."""
+        result = {
+            "stat": "ok",
+            "tasks": {
+                "list": {
+                    "id": "1",
+                    "taskseries": {
+                        "id": "10",
+                        "name": "No Start",
+                        "tags": [],
+                        "notes": [],
+                        "task": {"id": "100", "priority": "N", "start": ""},
+                    },
+                }
+            },
+        }
+        tasks = parse_tasks_response(result)
+        assert tasks[0]["start"] is None
+
+    def test_parse_task_missing_start_date(self) -> None:
+        """Test that missing start field is parsed as None."""
+        result = {
+            "stat": "ok",
+            "tasks": {
+                "list": {
+                    "id": "1",
+                    "taskseries": {
+                        "id": "10",
+                        "name": "No Start Field",
+                        "tags": [],
+                        "notes": [],
+                        "task": {"id": "100", "priority": "N"},
+                    },
+                }
+            },
+        }
+        tasks = parse_tasks_response(result)
+        assert tasks[0]["start"] is None
+
     def test_parse_empty_response(self) -> None:
         """Test parsing empty response."""
         result = {"stat": "ok", "tasks": {}}
@@ -188,6 +235,69 @@ class TestFormatTask:
         assert formatted["name"] == "Test Task"
         assert formatted["priority"] == "high"
         assert formatted["id"] == "123"
+
+    def test_format_task_includes_start_date(self) -> None:
+        """Test that formatted task includes start date."""
+        task = {
+            "id": "123",
+            "taskseries_id": "456",
+            "list_id": "789",
+            "name": "Test Task",
+            "priority": "1",
+            "due": "2024-01-15T00:00:00Z",
+            "start": "2024-01-10T00:00:00Z",
+            "completed": None,
+            "tags": ["work"],
+            "url": None,
+            "notes": [],
+        }
+
+        formatted = format_task(task)
+
+        assert "start" in formatted
+        assert formatted["start"] is not None
+
+    def test_format_task_null_start_date(self) -> None:
+        """Test that None start date is preserved."""
+        task = {
+            "id": "123",
+            "taskseries_id": "456",
+            "list_id": "789",
+            "name": "Test",
+            "priority": "N",
+            "due": None,
+            "start": None,
+            "completed": None,
+            "tags": [],
+            "url": None,
+            "notes": [],
+        }
+
+        formatted = format_task(task)
+
+        assert "start" in formatted
+        assert formatted["start"] is None
+
+    def test_format_task_start_date_timezone_conversion(self) -> None:
+        """Test that start date is converted to user timezone."""
+        task = {
+            "id": "123",
+            "taskseries_id": "456",
+            "list_id": "789",
+            "name": "Test",
+            "priority": "N",
+            "due": None,
+            "start": "2024-01-10T00:00:00Z",
+            "completed": None,
+            "tags": [],
+            "url": None,
+            "notes": [],
+        }
+
+        formatted = format_task(task, timezone="Europe/Sofia")
+
+        assert "start" in formatted
+        assert "+02:00" in formatted["start"]
 
     def test_format_without_ids(self) -> None:
         """Test formatting without IDs."""
