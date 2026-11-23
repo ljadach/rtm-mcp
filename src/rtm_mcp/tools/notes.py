@@ -191,18 +191,12 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
 
         client: RTMClient = await get_client()
 
-        # Find the task with its notes
+        # Find the task with its notes.
+        # Both lookups filter to incomplete tasks: an unfiltered getList returns
+        # the whole history (completed tasks included), and RTM can answer
+        # HTTP 502 for it on a list with a long history.
         if task_name and not task_id:
-            result = await client.call("rtm.tasks.getList")
-            tasks = parse_tasks_response(result)
-
-            name_lower = task_name.lower()
-            task = None
-            for t in tasks:
-                if t["name"].lower() == name_lower or name_lower in t["name"].lower():
-                    task = t
-                    break
-
+            task = await _find_task(client, task_name)
             if not task:
                 return build_response(data={"error": f"Task not found: {task_name}"})
         else:
@@ -211,7 +205,9 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                     data={"error": "Must provide task_name or all three IDs"},
                 )
             # Fetch the specific task
-            result = await client.call("rtm.tasks.getList", list_id=list_id)
+            result = await client.call(
+                "rtm.tasks.getList", list_id=list_id, filter="status:incomplete"
+            )
             tasks = parse_tasks_response(result)
             task = None
             for t in tasks:
@@ -220,7 +216,7 @@ def register_note_tools(mcp: Any, get_client: Any) -> None:
                     break
 
             if not task:
-                return build_response(data={"error": "Task not found"})
+                return build_response(data={"error": "Task not found among incomplete tasks"})
 
         notes = task.get("notes", [])
         if isinstance(notes, dict):
